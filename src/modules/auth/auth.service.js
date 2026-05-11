@@ -270,7 +270,7 @@ export async function refresh({ refreshToken, sessionId }) {
   if (!ok) throw new AppError('AUTH_TOKEN_INVALID', 'Invalid refresh token', 401);
 
   const user = await repo.findUserById(session.userId);
-  if (!user) throw new AppError('RESOURCE_NOT_FOUND', 'User not found', 404);
+  if (!user) throw new AppError('AUTH_TOKEN_REVOKED', 'Session invalid — please log in again', 401);
 
   const token = signAccessToken({
     userId: String(user._id),

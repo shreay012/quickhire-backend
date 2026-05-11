@@ -3,8 +3,6 @@ import { z } from 'zod';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { validate } from '../../middleware/validate.middleware.js';
 import { roleGuard } from '../../middleware/role.middleware.js';
-import { getDb, getDualDb } from '../../config/db.js';
-import { ObjectId } from 'mongodb';
 import { sanitizeUser, mintAccessToken } from '../auth/auth.service.js';
 import { AppError } from '../../utils/AppError.js';
 import { s3 } from '../../config/aws.js';
@@ -13,6 +11,7 @@ import { env } from '../../config/env.js';
 import { nanoid } from 'nanoid';
 import { safeUpload, MIME_PRESETS } from '../../utils/safe-upload.js';
 import { isE164, SUPPORTED_DIAL_CODES } from '../../lib/sms.js';
+import * as usersRepo from '../../data/repos/users.js';
 
 const r = Router();
 // Profile-avatar upload: 5 MB raster image only (no SVG — avatars don't need
@@ -23,7 +22,6 @@ const upload = safeUpload({
   extensions: ['.png', '.jpg', '.jpeg', '.webp'],
   label: 'avatar',
 });
-const usersCol = () => getDualDb().collection('users');
 
 // Phase 2.6 — profile completion. Email + E.164 mobile both accept any
 // supported dial code (+91/+971/+49/+1/+61). The middleware enforces
@@ -42,7 +40,7 @@ const profileSchema = z.object({
 });
 
 r.get('/profile', roleGuard(['user', 'pm', 'admin', 'resource', 'super_admin', 'seo', 'finance', 'ops', 'support', 'growth', 'viewer']), asyncHandler(async (req, res) => {
-  const u = await usersCol().findOne({ _id: new ObjectId(req.user.id) });
+  const u = await usersRepo.findById(req.user.id);
   if (!u) throw new AppError('RESOURCE_NOT_FOUND', 'User not found', 404);
   res.json({ success: true, data: sanitizeUser(u) });
 }));
@@ -68,27 +66,19 @@ r.put('/profile',
     // Bug_33: re-login asks signup again — was caused by dotted-key
     // 'meta.isProfileComplete' getting written as a top-level column
     // when the user table runs on Postgres (JSONB doesn't accept
-    // dotted notation in $set). Read existing meta, merge, write
-    // the full object so it nests correctly.
-    let existingMeta = {};
-    try {
-      const existing = await usersCol().findOne({ _id: new ObjectId(req.user.id) });
-      existingMeta = (existing && existing.meta) || {};
-    } catch { /* fall through with empty meta */ }
+    // dotted notation in $set). Use the typed repo which handles
+    // meta merges via JSONB COALESCE so sibling keys are preserved.
     if (data.name && data.email) {
-      update.meta = { ...existingMeta, isProfileComplete: true };
+      update['meta.isProfileComplete'] = true;
     }
 
     let r2;
     try {
-      r2 = await usersCol().findOneAndUpdate(
-        { _id: new ObjectId(req.user.id) },
-        { $set: update },
-        { returnDocument: 'after' },
-      );
+      r2 = await usersRepo.updateById(req.user.id, update);
     } catch (err) {
-      if (err && err.code === 11000) {
-        const field = Object.keys(err.keyPattern || err.keyValue || { email: 1 })[0] || 'field';
+      if (err && (err.code === '23505' || err.code === 11000)) {
+        const detail = err.detail || '';
+        const field = detail.includes('email') ? 'email' : detail.includes('mobile') ? 'mobile' : 'field';
         throw new AppError('RESOURCE_CONFLICT', `This ${field} is already in use by another account`, 409);
       }
       throw err;
@@ -98,7 +88,7 @@ r.put('/profile',
     // profile-complete middleware without a logout. Without this, the
     // stale JWT (issued at OTP-verify time) would keep failing and the
     // ProfileGate modal would re-pop on every page.
-    const fresh = sanitizeUser(r2.value || r2);
+    const fresh = sanitizeUser(r2);
     let token = null;
     try {
       token = mintAccessToken({
@@ -122,10 +112,13 @@ r.post('/devices',
   roleGuard(['user', 'pm', 'admin', 'resource', 'super_admin', 'seo', 'finance', 'ops', 'support', 'growth', 'viewer']),
   validate(z.object({ token: z.string().min(10), platform: z.enum(['android', 'ios', 'web']) })),
   asyncHandler(async (req, res) => {
-    await usersCol().updateOne(
-      { _id: new ObjectId(req.user.id) },
-      { $addToSet: { fcmTokens: { ...req.body, createdAt: new Date() } } },
-    );
+    // Simulate $addToSet: read current tokens, dedupe, write back.
+    const u = await usersRepo.findById(req.user.id);
+    const existing = Array.isArray(u?.fcmTokens) ? u.fcmTokens : [];
+    const entry = { ...req.body, createdAt: new Date() };
+    const already = existing.some((t) => t.token === req.body.token);
+    const fcmTokens = already ? existing : [...existing, entry];
+    await usersRepo.updateById(req.user.id, { fcmTokens });
     res.json({ success: true });
   }),
 );
@@ -133,10 +126,11 @@ r.post('/devices',
 r.delete('/devices/:token',
   roleGuard(['user', 'pm', 'admin', 'resource', 'super_admin', 'seo', 'finance', 'ops', 'support', 'growth', 'viewer']),
   asyncHandler(async (req, res) => {
-    await usersCol().updateOne(
-      { _id: new ObjectId(req.user.id) },
-      { $pull: { fcmTokens: { token: req.params.token } } },
-    );
+    // Simulate $pull: read current tokens, filter, write back.
+    const u = await usersRepo.findById(req.user.id);
+    const existing = Array.isArray(u?.fcmTokens) ? u.fcmTokens : [];
+    const fcmTokens = existing.filter((t) => t.token !== req.params.token);
+    await usersRepo.updateById(req.user.id, { fcmTokens });
     res.json({ success: true });
   }),
 );
@@ -172,11 +166,9 @@ const notificationPreferencesSchema = z.object({
 r.get('/notification-preferences',
   roleGuard(['user', 'pm', 'admin', 'resource', 'super_admin', 'seo', 'finance', 'ops', 'support', 'growth', 'viewer']),
   asyncHandler(async (req, res) => {
-    const u = await usersCol().findOne(
-      { _id: new ObjectId(req.user.id) },
-      { projection: { notificationPreferences: 1 } },
-    );
-    res.json({ success: true, data: u?.notificationPreferences || {} });
+    const u = await usersRepo.findById(req.user.id);
+    // notificationPreferences stored inside meta JSONB (no dedicated column)
+    res.json({ success: true, data: u?.meta?.notificationPreferences || {} });
   }),
 );
 
@@ -184,10 +176,8 @@ r.put('/notification-preferences',
   roleGuard(['user', 'pm', 'admin', 'resource', 'super_admin', 'seo', 'finance', 'ops', 'support', 'growth', 'viewer']),
   validate(notificationPreferencesSchema),
   asyncHandler(async (req, res) => {
-    await usersCol().updateOne(
-      { _id: new ObjectId(req.user.id) },
-      { $set: { notificationPreferences: req.body, updatedAt: new Date() } },
-    );
+    // Store inside meta JSONB using the dotted-key merge path in usersRepo.updateById
+    await usersRepo.updateById(req.user.id, { 'meta.notificationPreferences': req.body });
     res.json({ success: true, data: req.body });
   }),
 );
