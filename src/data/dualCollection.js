@@ -128,6 +128,11 @@ function toPgValue(v) {
   if (v == null) return null;
   if (v instanceof ObjectId) return v.toString();
   if (v instanceof Date) return v;
+  // JSONB text-extraction (data->>'field') always returns text. Comparing
+  // it to a JS boolean sends a pg boolean parameter → "operator does not
+  // exist: text <> boolean" → 500. Convert to the literal string so the
+  // comparison becomes `data->>'read' <> 'true'` which is valid.
+  if (typeof v === 'boolean') return String(v);
   if (typeof v === 'object') return JSON.stringify(v);
   return v;
 }
