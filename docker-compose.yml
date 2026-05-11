@@ -1,0 +1,56 @@
+version: "3.9"
+services:
+  mongo:
+    image: mongo:7
+    ports: ["27017:27017"]
+    volumes: [mongo_data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: quickhire
+      POSTGRES_USER: quickhire
+      POSTGRES_PASSWORD: quickhire
+    # Host port 5434 — avoids clash with Homebrew PG (5432) and any
+    # EnterpriseDB PG (5433) that may be installed alongside.
+    # Inside the compose network, services connect via "postgres:5432".
+    ports: ["5434:5432"]
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      # Auto-restore the dump bundle on first boot (only when pg_data is empty).
+      - ./db/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quickhire -d quickhire"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    # Reads .env.docker (gitignored). Copy from .env.docker.example to
+    # bootstrap. Dev-only — production deploys (Render/Neon) inject env
+    # via the platform UI, not files.
+    env_file: .env.docker
+    ports: ["4000:4000"]
+    depends_on:
+      mongo:    { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+
+volumes:
+  mongo_data: {}
+  pg_data: {}

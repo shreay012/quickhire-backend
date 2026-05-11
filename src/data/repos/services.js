@@ -1,0 +1,239 @@
+/**
+ * Services repository — dual-driver gateway. Read routing: PG_DRIVER_SERVICES.
+ * Mirror Mongo doc shape exactly so existing service.routes.js consumers
+ * (projectForCountry, geo-pricing overlay, etc.) work unchanged.
+ */
+
+import { eq, asc, desc, ne, and, sql } from 'drizzle-orm';
+import { ObjectId } from 'mongodb';
+import { newId } from '../../utils/oid.js';
+import { getDb as getMongo } from '../../config/db.js';
+import { getPg } from '../../db/postgres.js';
+import { services as servicesTable } from '../../db/schema.js';
+import { env } from '../../config/env.js';
+import { logger } from '../../config/logger.js';
+
+const TABLE = 'services';
+const mongoCol = () => getMongo().collection(TABLE);
+const readsFromPg = () => env.PG_DRIVER_SERVICES === 'postgres' && !!getPg();
+const dualWritesEnabled = () => String(env.PG_DUAL_WRITE || '').split(',').map((s) => s.trim()).includes(TABLE) && !!getPg();
+
+// Postgres row -> Mongo-shaped doc. Existing route handlers expect Mongo
+// field names (camelCase, _id as ObjectId-or-string). Convert here once.
+function fromPgRow(row) {
+  if (!row) return null;
+  return {
+    _id:           row._id,                 // CHAR(24) — same hex string
+    slug:          row.slug,
+    name:          row.name,
+    tagline:       row.tagline || undefined,
+    description:   row.description || undefined,
+    category:      row.category || undefined,
+    categoryName:  row.categoryName || undefined,
+    technologies:  row.technologies || [],
+    pricing:       row.pricing || undefined,
+    highlights:    row.highlights || [],
+    inclusions:    row.inclusions || [],
+    notIncluded:   row.notIncluded || [],
+    faq:           row.faq || [],
+    hourlyRate:    row.hourlyRate ?? undefined,
+    currency:      row.currency || undefined,
+    minHours:      row.minHours ?? undefined,
+    maxHours:      row.maxHours ?? undefined,
+    image:         row.image || undefined,
+    iconUrl:       row.iconUrl || undefined,
+    sortOrder:     row.sortOrder,
+    active:        row.active,
+    activeByCountry: row.activeByCountry || {},
+    createdAt:     row.createdAt,
+    updatedAt:     row.updatedAt,
+  };
+}
+
+// ── Reads ──────────────────────────────────────────────────────────
+
+// findAll — every service, active or not. Used by the strict-repo
+// proxy in dualCollection.js when callers iterate via the collection
+// API. listActive() remains the preferred entry point for the public
+// catalogue route.
+export async function findAll() {
+  if (readsFromPg()) {
+    const rows = await getPg().select().from(servicesTable).orderBy(asc(servicesTable.sortOrder), desc(servicesTable.createdAt));
+    return rows.map(fromPgRow);
+  }
+  return await mongoCol().find({}).sort({ sortOrder: 1, createdAt: -1 }).toArray();
+}
+
+export async function listActive() {
+  if (readsFromPg()) {
+    const rows = await getPg()
+      .select().from(servicesTable)
+      .where(ne(servicesTable.active, false))
+      .orderBy(asc(servicesTable.sortOrder), desc(servicesTable.createdAt));
+    return rows.map(fromPgRow);
+  }
+  return await mongoCol().find({ active: { $ne: false } }).sort({ sortOrder: 1, createdAt: -1 }).toArray();
+}
+
+export async function findBySlug(slug) {
+  if (readsFromPg()) {
+    const rows = await getPg().select().from(servicesTable).where(eq(servicesTable.slug, slug)).limit(1);
+    return fromPgRow(rows[0]);
+  }
+  return await mongoCol().findOne({ slug });
+}
+
+export async function findById(idLike) {
+  const idStr = String(idLike);
+  if (readsFromPg()) {
+    const rows = await getPg().select().from(servicesTable).where(eq(servicesTable._id, idStr)).limit(1);
+    return fromPgRow(rows[0]);
+  }
+  if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return null;
+  return await mongoCol().findOne({ _id: new ObjectId(idStr) });
+}
+
+// ── Writes ─────────────────────────────────────────────────────────
+// When PG_DRIVER_SERVICES=postgres, writes go directly to PG (Mongo
+// untouched — production can run with MONGO_URI=disabled). Otherwise
+// the legacy Mongo-first + optional PG dual-write path is preserved.
+
+export async function insertOne(doc) {
+  const now = new Date();
+  const withTs = { ...doc, createdAt: doc.createdAt || now, updatedAt: now };
+
+  if (readsFromPg()) {
+    const id = withTs._id ? String(withTs._id) : newId();
+    const inserted = { ...withTs, _id: id };
+    await getPg()
+      .insert(servicesTable)
+      .values(toPgRow(inserted))
+      .onConflictDoUpdate({ target: servicesTable._id, set: toPgUpdateSet(inserted) });
+    return inserted;
+  }
+
+  const r = await mongoCol().insertOne(withTs);
+  const inserted = { ...withTs, _id: r.insertedId };
+  if (dualWritesEnabled()) {
+    getPg()
+      .insert(servicesTable)
+      .values(toPgRow(inserted))
+      .onConflictDoUpdate({ target: servicesTable._id, set: toPgUpdateSet(inserted) })
+      .catch((err) => logger.error({ err: err.message, table: TABLE }, 'pg dual-write failed'));
+  }
+  return inserted;
+}
+
+export async function updateById(idLike, $set) {
+  if (readsFromPg()) {
+    const idStr = String(idLike);
+    // Phase fix (2026-05-11): the previous implementation did an UPSERT
+    // (INSERT … ON CONFLICT UPDATE) which would happily try to INSERT a
+    // brand-new row when only partial fields were provided, violating the
+    // NOT NULL on `slug`. The correct shape for an "update by id" is a
+    // pure UPDATE that only touches the columns the caller named.
+    const existing = await getPg().select().from(servicesTable).where(eq(servicesTable._id, idStr)).limit(1);
+    if (!existing[0]) return null;
+    // Merge the partial $set onto the existing row, run toPgRow on the merged
+    // value to get a complete column map, then UPDATE.
+    const fromPg = fromPgRow(existing[0]);
+    const merged = { ...fromPg, ...$set, _id: idStr, updatedAt: new Date() };
+    const updateSet = toPgUpdateSet(merged);
+    await getPg().update(servicesTable).set(updateSet).where(eq(servicesTable._id, idStr));
+    const rows = await getPg().select().from(servicesTable).where(eq(servicesTable._id, idStr)).limit(1);
+    return fromPgRow(rows[0]);
+  }
+
+  const id = typeof idLike === 'string' ? new ObjectId(idLike) : idLike;
+  const result = await mongoCol().findOneAndUpdate(
+    { _id: id },
+    { $set: { ...$set, updatedAt: new Date() } },
+    { returnDocument: 'after' },
+  );
+  const doc = result.value || result;
+
+  if (dualWritesEnabled() && doc) {
+    getPg()
+      .insert(servicesTable)
+      .values(toPgRow(doc))
+      .onConflictDoUpdate({ target: servicesTable._id, set: toPgUpdateSet(doc) })
+      .catch((err) => logger.error({ err: err.message, table: TABLE }, 'pg dual-write failed'));
+  }
+  return doc;
+}
+
+// Country-scoped activation toggle. Country-admin and super_admin call
+// this to flip availability in a single market without rewriting the
+// rest of the service document. Pass `country = null` (super_admin only)
+// to flip the global `active` boolean instead of the per-country map.
+//
+// Uses jsonb_set so concurrent toggles for different countries don't
+// clobber each other — important when multiple country admins are
+// editing simultaneously.
+export async function setActiveForCountry(idLike, country, active) {
+  const idStr = String(idLike);
+  const isActive = !!active;
+
+  if (readsFromPg()) {
+    if (country == null) {
+      // Super-admin global flip
+      await getPg()
+        .update(servicesTable)
+        .set({ active: isActive, updatedAt: new Date() })
+        .where(eq(servicesTable._id, idStr));
+    } else {
+      const cc = String(country).toUpperCase();
+      // jsonb_set(active_by_country, '{IN}', 'true'::jsonb, true)
+      await getPg().execute(
+        sql`UPDATE services
+            SET active_by_country = jsonb_set(active_by_country, ${'{' + cc + '}'}, ${sql.raw(isActive ? "'true'::jsonb" : "'false'::jsonb")}, true),
+                updated_at = now()
+            WHERE _id = ${idStr}`,
+      );
+    }
+    const rows = await getPg().select().from(servicesTable).where(eq(servicesTable._id, idStr)).limit(1);
+    return fromPgRow(rows[0]);
+  }
+
+  // Mongo path is intentionally absent: this feature was added after
+  // PG cutover. If PG_DRIVER_SERVICES is not set, the new toggle
+  // endpoint will refuse to act rather than silently drift between
+  // databases.
+  throw new Error('setActiveForCountry requires PG_DRIVER_SERVICES=postgres');
+}
+
+// ── Mongo doc → Postgres row ───────────────────────────────────────
+function toPgRow(doc) {
+  return {
+    _id:           String(doc._id),
+    slug:          doc.slug,
+    name:          doc.name,
+    tagline:       doc.tagline || null,
+    description:   doc.description || null,
+    category:      doc.category || null,
+    categoryName:  doc.categoryName || null,
+    technologies:  doc.technologies || null,
+    pricing:       doc.pricing || null,
+    highlights:    doc.highlights || null,
+    inclusions:    doc.inclusions || null,
+    notIncluded:   doc.notIncluded || null,
+    faq:           doc.faq || null,
+    hourlyRate:    doc.hourlyRate ?? null,
+    currency:      doc.currency || null,
+    minHours:      doc.minHours ?? null,
+    maxHours:      doc.maxHours ?? null,
+    image:         doc.image || null,
+    iconUrl:       doc.iconUrl || null,
+    sortOrder:     doc.sortOrder ?? 999,
+    active:        doc.active !== false,
+    activeByCountry: doc.activeByCountry && typeof doc.activeByCountry === 'object' ? doc.activeByCountry : {},
+    createdAt:     doc.createdAt || new Date(),
+    updatedAt:     doc.updatedAt || new Date(),
+  };
+}
+function toPgUpdateSet(doc) {
+  const row = toPgRow(doc);
+  delete row._id;
+  delete row.createdAt;
+  return row;
+}
