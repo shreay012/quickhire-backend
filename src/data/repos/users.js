@@ -18,7 +18,12 @@ import { getPg } from '../../db/postgres.js';
 import { users as usersTable } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
-import { mongoIsDisabled } from '../dualCollection.js';
+
+// Inlined here to avoid circular import (dualCollection → users → dualCollection).
+function mongoIsDisabled() {
+  const u = String(env.MONGO_URI || '').trim().toLowerCase();
+  return !u || u === 'disabled' || u === 'skip' || u === 'none';
+}
 
 const TABLE = 'users';
 const mongoCol = () => getMongo().collection(TABLE);

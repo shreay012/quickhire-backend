@@ -13,7 +13,12 @@ import { getPg } from '../../db/postgres.js';
 import { sessions as sessionsTable } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
-import { mongoIsDisabled } from '../dualCollection.js';
+
+// Inlined here to avoid circular import (dualCollection → sessions → dualCollection).
+function mongoIsDisabled() {
+  const u = String(env.MONGO_URI || '').trim().toLowerCase();
+  return !u || u === 'disabled' || u === 'skip' || u === 'none';
+}
 
 const TABLE = 'sessions';
 const mongoCol = () => getMongo().collection(TABLE);

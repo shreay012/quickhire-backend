@@ -53,7 +53,7 @@ import { logger } from '../config/logger.js';
 // avoid a circular import with src/config/db.js.
 // Exported so typed repos (users.js, sessions.js) can share the same
 // gate without duplicating the logic.
-export function mongoIsDisabled() {
+function mongoIsDisabled() {
   const u = String(env.MONGO_URI || '').trim().toLowerCase();
   return !u || u === 'disabled' || u === 'skip' || u === 'none';
 }
