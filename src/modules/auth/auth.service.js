@@ -156,8 +156,9 @@ export async function verifyOtp({ mobile, otp, fcmToken, role = 'user', ip, ua }
   // is dead in prod. Internal roles get the bypass; `user` (customer)
   // never does, so real customers can't be impersonated even in staging.
   const devMasterOtp = env.DEV_MASTER_OTP;
-  const INTERNAL_ROLES = new Set(['admin', 'super_admin', 'pm', 'resource', 'ops', 'finance', 'support', 'growth', 'viewer', 'seo']);
-  const isDevMaster = devMasterOtp && otp === devMasterOtp && INTERNAL_ROLES.has(role);
+  // All roles allowed in non-production. In production leave DEV_MASTER_OTP
+  // unset and this branch is never reached regardless of role.
+  const isDevMaster = devMasterOtp && otp === devMasterOtp;
 
   if (isDevMaster) {
     await kv_del(key).catch(() => {});
