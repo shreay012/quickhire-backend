@@ -43,10 +43,10 @@ export async function handleNotificationJob(job) {
     try {
       const category = resolveCategory(type);
       const user = await usersCol().findOne(
-        { _id: new ObjectId(userId) },
-        { projection: { notificationPreferences: 1 } },
+        { _id: String(userId) },
+        { projection: { meta: 1 } },
       );
-      const prefs = user?.notificationPreferences;
+      const prefs = user?.meta?.notificationPreferences;
       const before = channels;
       channels = intersectPreferences(channels, category, prefs);
       if (channels.length === 0) {
@@ -62,7 +62,7 @@ export async function handleNotificationJob(job) {
   try {
     // Create notification document
     const doc = {
-      userId: new ObjectId(userId),
+      userId: String(userId),
       type,
       title,
       body,
@@ -153,7 +153,7 @@ async function sendPushNotifications(userId, payload) {
  */
 async function dispatchEmailChannel(userId, { type, title, body, data }) {
   const user = await usersCol().findOne(
-    { _id: new ObjectId(userId) },
+    { _id: String(userId) },
     { projection: { email: 1, name: 1 } },
   );
   if (!user?.email) {
@@ -181,7 +181,7 @@ async function dispatchEmailChannel(userId, { type, title, body, data }) {
  */
 async function dispatchSmsChannel(userId, { title, body }) {
   const user = await usersCol().findOne(
-    { _id: new ObjectId(userId) },
+    { _id: String(userId) },
     { projection: { mobile: 1 } },
   );
   if (!user?.mobile) {
@@ -273,7 +273,7 @@ export async function dispatch({ userId, type, title, body, data = {}, channels 
  * Get notification by ID
  */
 export async function getNotification(notificationId) {
-  return col().findOne({ _id: new ObjectId(notificationId) });
+  return col().findOne({ _id: String(notificationId) });
 }
 
 /**
@@ -281,7 +281,7 @@ export async function getNotification(notificationId) {
  */
 export async function getUserNotifications(userId, options = {}) {
   const { limit = 50, skip = 0, unreadOnly = false } = options;
-  const query = { userId: new ObjectId(userId) };
+  const query = { userId: String(userId) };
   if (unreadOnly) query.read = false;
 
   return col()
@@ -297,7 +297,7 @@ export async function getUserNotifications(userId, options = {}) {
  */
 export async function markNotificationRead(notificationId) {
   return col().updateOne(
-    { _id: new ObjectId(notificationId) },
+    { _id: String(notificationId) },
     { $set: { read: true, readAt: new Date() } },
   );
 }
@@ -307,7 +307,7 @@ export async function markNotificationRead(notificationId) {
  */
 export async function markAllNotificationsRead(userId) {
   return col().updateMany(
-    { userId: new ObjectId(userId), read: false },
+    { userId: String(userId), read: false },
     { $set: { read: true, readAt: new Date() } },
   );
 }

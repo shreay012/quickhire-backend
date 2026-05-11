@@ -322,16 +322,42 @@ function strictRepoProxy(table) {
 
   // Filter helpers — translate Mongo-shaped { code }, { _id }, etc.
   // into repo function calls.
+  //
+  // IMPORTANT: When a shortcut (findById / findByCode / etc.) is taken,
+  // we must still verify any ADDITIONAL fields in the filter against the
+  // returned doc. Without this, { _id: x, role: 'pm' } would return a
+  // user regardless of their role because the shortcut only matched _id.
+  // This was silently skipping role/status checks in admin assign-PM/
+  // assign-resource endpoints (B-STRICT-01).
+  const applyExtraFilter = (doc, filter, skipKeys) => {
+    if (!doc) return null;
+    const rest = Object.fromEntries(
+      Object.entries(filter).filter(([k]) => !skipKeys.includes(k)),
+    );
+    return Object.keys(rest).length === 0 || matchesFilter(doc, rest) ? doc : null;
+  };
+
   const findOne = async (filter = {}) => {
     if (filter._id) {
-      return repo.findById ? await repo.findById(filter._id) : null;
+      const doc = repo.findById ? await repo.findById(filter._id) : null;
+      return applyExtraFilter(doc, filter, ['_id']);
     }
-    if (filter.code && repo.findByCode) return await repo.findByCode(filter.code);
-    if (filter.slug && repo.findBySlug) return await repo.findBySlug(filter.slug);
+    if (filter.code && repo.findByCode) {
+      const doc = await repo.findByCode(filter.code);
+      return applyExtraFilter(doc, filter, ['code']);
+    }
+    if (filter.slug && repo.findBySlug) {
+      const doc = await repo.findBySlug(filter.slug);
+      return applyExtraFilter(doc, filter, ['slug']);
+    }
     if (filter.mobile && repo.findByMobile) {
+      // findByMobile already filters by role internally
       return await repo.findByMobile(filter.mobile, filter.role);
     }
-    if (filter.email && repo.findByEmail) return await repo.findByEmail(filter.email);
+    if (filter.email && repo.findByEmail) {
+      const doc = await repo.findByEmail(filter.email);
+      return applyExtraFilter(doc, filter, ['email']);
+    }
     // Last-resort: scan all and filter in JS. Fine for the rare admin
     // endpoint that hits these tables with an exotic filter — strict
     // tables are tiny (countries=8, currencies=3, services<100,

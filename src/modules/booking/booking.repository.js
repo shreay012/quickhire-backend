@@ -9,11 +9,19 @@ export const insert = async (doc) => {
   return { _id: r.insertedId, ...doc };
 };
 
-export const findById = (id) => col().findOne({ _id: new ObjectId(id) });
+export const findById = (id) => {
+  // Guard against invalid ids — new ObjectId(bad) throws a native exception
+  // (not AppError) which would produce a 500 instead of a 404. Return null
+  // so callers treat it as "not found" and throw AppError themselves.
+  try { return col().findOne({ _id: new ObjectId(id) }); }
+  catch { return null; }
+};
 
 export const updateOne = async (id, set) => {
+  let oid;
+  try { oid = new ObjectId(id); } catch { oid = id; }
   const r = await col().findOneAndUpdate(
-    { _id: new ObjectId(id) },
+    { _id: oid },
     { $set: { ...set, updatedAt: new Date() } },
     { returnDocument: 'after' },
   );
@@ -28,7 +36,10 @@ export const count = (filter) => col().countDocuments(filter);
 export const appendHistory = (event) => histCol().insertOne(event);
 
 export const findHistory = (bookingId, serviceId) =>
+  // Plain strings — stored in JSONB data column and compared via
+  // data->>'bookingId'. ObjectId.toJSON() produces the same hex so both
+  // old (ObjectId-stored) and new (string-stored) rows match.
   histCol().find({
-    bookingId: new ObjectId(bookingId),
-    ...(serviceId ? { serviceId: new ObjectId(serviceId) } : {}),
+    bookingId: String(bookingId),
+    ...(serviceId ? { serviceId: String(serviceId) } : {}),
   }).sort({ at: 1 }).toArray();

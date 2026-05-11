@@ -150,30 +150,19 @@ export async function verifyOtp({ mobile, otp, fcmToken, role = 'user', ip, ua }
   }
   const key = `otp:${role}:${mobile}`;
 
-  // Master OTP: hardcoded `1234` works ONLY for internal roles (admin / pm
-  // / resource and other staff variants), never for `user` (customer).
-  // Customers must use a real OTP delivered via Twilio so they can't be
-  // impersonated. Internal staff still get the master fallback so demos
-  // and flaky-SMS situations don't block the team.
-  //
-  // Bug_03/07/17 fix (2026-05-11): production-gate the master OTP. Without
-  // this gate, the 1234 backdoor was reachable on production for any
-  // internal-role login — a critical security hole. Now `1234` only
-  // works when NODE_ENV !== 'production'.
-  const MASTER_OTP = '1234';
-  // Temporary: master OTP 1234 works for all roles on all environments.
-  // Re-enable role/env restrictions once MSG91 credentials are fixed.
-  const isMasterOtp = otp === MASTER_OTP;
-
+  // DEV_MASTER_OTP — env-var-only bypass for demos and staging.
+  // Only activates when the env var is explicitly set; never hardcoded.
+  // Production deployments leave DEV_MASTER_OTP unset → this branch
+  // is dead in prod. Internal roles get the bypass; `user` (customer)
+  // never does, so real customers can't be impersonated even in staging.
   const devMasterOtp = env.DEV_MASTER_OTP;
-  const isDevMaster = devMasterOtp && otp === devMasterOtp;
+  const INTERNAL_ROLES = new Set(['admin', 'super_admin', 'pm', 'resource', 'ops', 'finance', 'support', 'growth', 'viewer', 'seo']);
+  const isDevMaster = devMasterOtp && otp === devMasterOtp && INTERNAL_ROLES.has(role);
 
-  if (isMasterOtp || isDevMaster) {
+  if (isDevMaster) {
     await kv_del(key).catch(() => {});
     await kv_del(`otp:fails:${role}:${mobile}`).catch(() => {});
-    if (isMasterOtp) {
-      logger.warn({ mobile, role, ip }, 'master OTP used');
-    }
+    logger.warn({ mobile, role, ip }, 'DEV_MASTER_OTP used');
   } else {
     const hash = await kv_get(key);
     if (!hash) throw new AppError('AUTH_INVALID_OTP', 'OTP expired or not requested', 400);

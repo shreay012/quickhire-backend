@@ -34,8 +34,8 @@ export async function create({ userId, payload, idemKey, actor }) {
 
   const now = new Date();
   const booking = await repo.insert({
-    userId: new ObjectId(userId),
-    serviceId: new ObjectId(payload.serviceId),
+    userId: String(userId),
+    serviceId: String(payload.serviceId),
     status: 'pending',
     startTime: new Date(payload.startTime),
     endTime: new Date(payload.endTime),
@@ -206,7 +206,10 @@ export async function listForCustomer({ userId, statuses, page, pageSize }) {
   const jobsCol = getDualDb().collection('jobs');
   const servicesCol = getDualDb().collection('services');
 
-  const filter = { userId: new ObjectId(userId) };
+  // Use plain string — userId is stored as a string in PG (either via
+  // String(objectId) when the job was created, or directly). The `userId`
+  // key maps to the indexed `user_id` column via COL_MAP in dualCollection.
+  const filter = { userId: String(userId) };
   if (statuses?.length) {
     // Treat 'completed' literally; treat ongoing-set as everything else not cancelled
     const ongoingAliases = new Set(['confirmed', 'in_progress', 'assigned_to_pm', 'pending']);
@@ -230,10 +233,10 @@ export async function listForCustomer({ userId, statuses, page, pageSize }) {
       if (s?.serviceId) svcIdSet.add(String(s.serviceId));
     }
   }
+  // Use plain string IDs — services is a strict-schema table; strictRepoProxy
+  // uses matchesFilter which compares via String(), so plain strings work fine.
   const svcDocs = svcIdSet.size
-    ? await servicesCol.find({
-        _id: { $in: Array.from(svcIdSet).map((x) => { try { return new ObjectId(x); } catch { return null; } }).filter(Boolean) },
-      }).toArray()
+    ? await servicesCol.find({ _id: { $in: Array.from(svcIdSet) } }).toArray()
     : [];
   const svcMap = new Map(svcDocs.map((d) => [String(d._id), d]));
 
@@ -300,7 +303,7 @@ export async function getTimeline(bookingId, serviceId) {
 
 export async function assignPm(bookingId, pmId, actor) {
   return transition(bookingId, 'assigned_to_pm', actor, `Assigned to PM ${pmId}`, {
-    pmId: new ObjectId(pmId),
+    pmId: String(pmId),
   });
 }
 

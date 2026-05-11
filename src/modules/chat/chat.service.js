@@ -12,8 +12,9 @@ async function attachSender(messages) {
   if (!messages || !messages.length) return messages;
   const ids = [...new Set(messages.map((m) => String(m.senderId)).filter(Boolean))];
   if (!ids.length) return messages;
+  // Plain string IDs — strictRepoProxy uses matchesFilter → String() comparison.
   const users = await usersCol()
-    .find({ _id: { $in: ids.map((id) => new ObjectId(id)) } }, { projection: { name: 1, role: 1 } })
+    .find({ _id: { $in: ids } }, { projection: { name: 1, role: 1 } })
     .toArray();
   const byId = new Map(users.map((u) => [String(u._id), u]));
   return messages.map((m) => {
@@ -59,7 +60,7 @@ export async function canJoinRoom(user, roomId) {
     const bookingId = roomId.slice('booking_'.length);
     if (!/^[0-9a-f]{24}$/i.test(bookingId)) return false;
     const booking = await getDualDb().collection('bookings').findOne(
-      { _id: new ObjectId(bookingId) },
+      { _id: String(bookingId) },
       { projection: { userId: 1, pmId: 1, resourceId: 1, country: 1 } },
     );
     if (!booking) return false;
@@ -90,7 +91,9 @@ export async function getHistory({ user, customerId, serviceId, bookingId, befor
     roomId = roomIdFor({ pmId: customerId, serviceId });
   }
   const filter = { roomId };
-  if (before) filter._id = { $lt: new ObjectId(before) };
+  // Plain string for cursor — CHAR(24) column, string ordering == time ordering
+  // for ObjectId-shaped 24-hex IDs (first 8 chars are big-endian timestamp).
+  if (before) filter._id = { $lt: String(before) };
   const items = await col().find(filter).sort({ createdAt: -1 }).limit(Math.min(limit, 100)).toArray();
   const enriched = await attachSender(items.reverse());
   return { roomId, items: enriched };
@@ -103,9 +106,9 @@ export async function persistAndBroadcast({ sender, roomId, msgType = 0, msg = '
   }
   const doc = {
     roomId,
-    serviceId: serviceId ? new ObjectId(serviceId) : null,
-    bookingId: bookingId ? new ObjectId(bookingId) : null,
-    senderId: new ObjectId(sender.id),
+    serviceId: serviceId ? String(serviceId) : null,
+    bookingId: bookingId ? String(bookingId) : null,
+    senderId: String(sender.id),
     senderRole: sender.role,
     msgType,
     msg: msg || '',
@@ -132,7 +135,7 @@ export async function persistAndBroadcast({ sender, roomId, msgType = 0, msg = '
   if (bookingId) {
     try {
       const b = await getDualDb().collection('bookings').findOne(
-        { _id: new ObjectId(bookingId) },
+        { _id: String(bookingId) },
         { projection: { userId: 1, pmId: 1, resourceId: 1 } },
       );
       if (b) {
@@ -168,7 +171,7 @@ async function notifyOtherParticipants(roomId, sender, message) {
     if (/^[0-9a-f]{24}$/i.test(bookingIdStr)) {
       try {
         const b = await getDualDb().collection('bookings').findOne(
-          { _id: new ObjectId(bookingIdStr) },
+          { _id: String(bookingIdStr) },
           { projection: { userId: 1, pmId: 1, resourceId: 1 } },
         );
         if (b) {
@@ -201,7 +204,7 @@ async function notifyOtherParticipants(roomId, sender, message) {
 
 export async function markSeen(messageId, userId) {
   await col().updateOne(
-    { _id: new ObjectId(messageId) },
-    { $addToSet: { seenBy: { userId: new ObjectId(userId), at: new Date() } } },
+    { _id: String(messageId) },
+    { $addToSet: { seenBy: { userId: String(userId), at: new Date() } } },
   );
 }

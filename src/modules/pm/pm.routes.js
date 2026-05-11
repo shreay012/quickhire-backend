@@ -157,7 +157,7 @@ r.post('/bookings/:id/accept', validate(noteSchema), asyncHandler(async (req, re
     { _id: job._id },
     {
       $set: { pmAcceptedAt: now, updatedAt: now },
-      $push: { history: { at: now, actorId: new ObjectId(req.user.id), actorRole: 'pm', event: 'pm_accepted', note: req.body.note || 'PM accepted' } },
+      $push: { history: { at: now, actorId: req.user.id, actorRole: 'pm', event: 'pm_accepted', note: req.body.note || 'PM accepted' } },
     },
   );
   if (job.userId) {
@@ -178,7 +178,7 @@ r.post('/bookings/:id/decline', validate(noteSchema), asyncHandler(async (req, r
     { _id: job._id },
     {
       $set: { pmId: null, projectManager: null, pmAcceptedAt: null, status: 'paid', updatedAt: now },
-      $push: { history: { at: now, actorId: new ObjectId(req.user.id), actorRole: 'pm', event: 'pm_declined', note: req.body.note || 'PM declined' } },
+      $push: { history: { at: now, actorId: req.user.id, actorRole: 'pm', event: 'pm_declined', note: req.body.note || 'PM declined' } },
     },
   );
   notifyAdmins({
@@ -206,7 +206,7 @@ r.post('/bookings/:id/start', validate(noteSchema), asyncHandler(async (req, res
         startedAt: job.startedAt || now,
         updatedAt: now,
       },
-      $push: { history: { at: now, actorId: new ObjectId(req.user.id), actorRole: 'pm', event: 'work_started', note: req.body.note || 'PM started work' } },
+      $push: { history: { at: now, actorId: req.user.id, actorRole: 'pm', event: 'work_started', note: req.body.note || 'PM started work' } },
     },
   );
   const updated = await jobsCol().findOne({ _id: job._id });
@@ -244,7 +244,7 @@ r.post('/bookings/:id/stop', validate(noteSchema), asyncHandler(async (req, res)
         workedMs: accruedMs,
         updatedAt: now,
       },
-      $push: { history: { at: now, actorId: new ObjectId(req.user.id), actorRole: 'pm', event: 'work_stopped', note: req.body.note || 'PM stopped work', sessionMs } },
+      $push: { history: { at: now, actorId: req.user.id, actorRole: 'pm', event: 'work_stopped', note: req.body.note || 'PM stopped work', sessionMs } },
     },
   );
   const updated = await jobsCol().findOne({ _id: job._id });
@@ -278,7 +278,7 @@ r.post('/bookings/:id/complete', validate(noteSchema), asyncHandler(async (req, 
         workedMs,
         updatedAt: now,
       },
-      $push: { history: { at: now, actorId: new ObjectId(req.user.id), actorRole: 'pm', event: 'completed', note: req.body.note || 'PM marked complete' } },
+      $push: { history: { at: now, actorId: req.user.id, actorRole: 'pm', event: 'completed', note: req.body.note || 'PM marked complete' } },
     },
   );
   const updated = await jobsCol().findOne({ _id: job._id });
@@ -307,7 +307,7 @@ r.post('/bookings/:id/timeline', validate(timelineSchema), asyncHandler(async (r
   const now = new Date();
   const entry = {
     at: now,
-    actorId: new ObjectId(req.user.id),
+    actorId: req.user.id,
     actorRole: 'pm',
     event: 'timeline_update',
     status: req.body.status || job.status,
@@ -352,20 +352,20 @@ const assignResourceSchema = z.object({
 });
 r.post('/bookings/:id/assign-resource', validate(assignResourceSchema), asyncHandler(async (req, res) => {
   const job = await loadOwnedJob(req.params.id, req.user.id);
-  const resourceId = new ObjectId(req.body.resourceId);
-  const resource = await usersCol().findOne({ _id: resourceId, role: 'resource' });
+  const resourceIdStr = req.body.resourceId;
+  const resource = await usersCol().findOne({ _id: resourceIdStr, role: 'resource' });
   if (!resource) throw new AppError('NOT_FOUND', 'Resource not found', 404);
   const now = new Date();
   await jobsCol().updateOne(
     { _id: job._id },
     {
       $set: {
-        resourceId,
+        resourceId: resourceIdStr,
         assignedResource: { _id: resource._id, name: resource.name, mobile: resource.mobile },
         resourceAssignedAt: now,
         updatedAt: now,
       },
-      $push: { history: { at: now, actorId: new ObjectId(req.user.id), actorRole: 'pm', event: 'resource_assigned', note: req.body.note || `Resource ${req.body.resourceId} assigned by PM` } },
+      $push: { history: { at: now, actorId: req.user.id, actorRole: 'pm', event: 'resource_assigned', note: req.body.note || `Resource ${req.body.resourceId} assigned by PM` } },
     },
   );
   enqueueNotification({
@@ -413,7 +413,7 @@ r.post('/bookings/:id/messages', validate(sendMsgSchema), asyncHandler(async (re
     roomId,
     bookingId: job._id,
     serviceId: job.services?.[0]?.serviceId || job.serviceId || null,
-    senderId: new ObjectId(req.user.id),
+    senderId: req.user.id,
     senderRole: 'pm',
     senderName: 'PM',
     msg: req.body.msg,

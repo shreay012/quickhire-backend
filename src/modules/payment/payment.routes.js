@@ -139,14 +139,12 @@ r.post('/create-order', rateLimitPayment(), roleGuard(['user', 'guest']), valida
   // sparse index on { paymentId: 1 } treats explicit null as a value —
   // multiple null docs would still 11000. Missing field is what sparse
   // actually skips.
-  // Guest checkouts have a string id ('guest_<nanoid>') — keep raw.
-  let userIdField;
-  try { userIdField = new ObjectId(req.user.id); }
-  catch { userIdField = req.user.id; }
+  // Store all reference IDs as plain strings so they're consistent when
+  // read back from PG JSONB (ObjectId.toJSON() = hex string = String(id)).
   const insertDoc = {
-    userId: userIdField,
+    userId: String(req.user.id),
     isGuest: req.user.role === 'guest',
-    jobId: new ObjectId(jobId),
+    jobId: String(jobId),
     bookingId: job.bookingId,
     provider: order.gatewayName,
     orderId: order.orderId,
@@ -318,7 +316,7 @@ r.get('/status/:paymentId', roleGuard(['user', 'admin']), asyncHandler(async (re
 
 r.get('/history', roleGuard(['user']), asyncHandler(async (req, res) => {
   const p = paginate(req.query);
-  const filter = { userId: new ObjectId(req.user.id) };
+  const filter = { userId: String(req.user.id) };
   const [items, total] = await Promise.all([
     col().find(filter).sort({ createdAt: -1 }).skip(p.skip).limit(p.limit).toArray(),
     col().countDocuments(filter),
