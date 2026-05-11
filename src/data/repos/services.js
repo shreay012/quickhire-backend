@@ -15,7 +15,21 @@ import { logger } from '../../config/logger.js';
 
 const TABLE = 'services';
 const mongoCol = () => getMongo().collection(TABLE);
-const readsFromPg = () => env.PG_DRIVER_SERVICES === 'postgres' && !!getPg();
+
+// Inlined to avoid circular import (dualCollection → services → dualCollection).
+function mongoIsDisabled() {
+  const u = String(env.MONGO_URI || '').trim().toLowerCase();
+  return !u || u === 'disabled' || u === 'skip' || u === 'none';
+}
+
+function readsFromPg() {
+  const pg = getPg();
+  if (!pg) return false;
+  if (env.PG_DRIVER_SERVICES === 'postgres') return true;
+  // Auto-route when Mongo is disabled — prevents silent in-memory / connection-error fallback.
+  if (mongoIsDisabled()) return true;
+  return false;
+}
 const dualWritesEnabled = () => String(env.PG_DUAL_WRITE || '').split(',').map((s) => s.trim()).includes(TABLE) && !!getPg();
 
 // Postgres row -> Mongo-shaped doc. Existing route handlers expect Mongo

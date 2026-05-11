@@ -18,7 +18,18 @@ import { logger } from '../../config/logger.js';
 
 const TABLE = 'currencies';
 const mongoCol = () => getMongo().collection(TABLE);
-const readsFromPg = () => env.PG_DRIVER_CURRENCIES === 'postgres' && !!getPg();
+// Inlined to avoid circular import (dualCollection → currencies → dualCollection).
+function mongoIsDisabled() {
+  const u = String(env.MONGO_URI || '').trim().toLowerCase();
+  return !u || u === 'disabled' || u === 'skip' || u === 'none';
+}
+function readsFromPg() {
+  const pg = getPg();
+  if (!pg) return false;
+  if (env.PG_DRIVER_CURRENCIES === 'postgres') return true;
+  if (mongoIsDisabled()) return true;
+  return false;
+}
 const dualWritesEnabled = () => String(env.PG_DUAL_WRITE || '').split(',').map((s) => s.trim()).includes(TABLE) && !!getPg();
 
 // Translate a Postgres row back to the Mongo-shaped doc the rest of the

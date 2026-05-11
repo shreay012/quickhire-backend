@@ -23,8 +23,18 @@ import { newId } from '../../utils/oid.js';
 const TABLE_NAME = 'countries';
 const mongoCol = () => getMongo().collection(TABLE_NAME);
 
+// Inlined to avoid circular import (dualCollection → countries → dualCollection).
+function mongoIsDisabled() {
+  const u = String(env.MONGO_URI || '').trim().toLowerCase();
+  return !u || u === 'disabled' || u === 'skip' || u === 'none';
+}
+
 function readsFromPg() {
-  return env.PG_DRIVER_COUNTRIES === 'postgres' && !!getPg();
+  const pg = getPg();
+  if (!pg) return false;
+  if (env.PG_DRIVER_COUNTRIES === 'postgres') return true;
+  if (mongoIsDisabled()) return true;
+  return false;
 }
 function dualWritesEnabled() {
   const list = String(env.PG_DUAL_WRITE || '').split(',').map((s) => s.trim());

@@ -187,16 +187,36 @@ function buildWhere(filter, values, depth = 0) {
             parts.push(`(${col} <> ${nextPlaceholder(values, toPgValue(opv))} OR ${col} IS NULL)`);
             break;
           case '$gt':
-            parts.push(`${col} > ${nextPlaceholder(values, toPgValue(opv))}`);
+            // JSONB text-extraction (data->>'field') returns TEXT. Comparing
+            // directly to a Date parameter fails: "operator does not exist:
+            // text > timestamptz". Cast the column to timestamptz when the
+            // value is a Date and the column lives inside the JSONB data blob.
+            if (opv instanceof Date && col.startsWith('data')) {
+              parts.push(`(${col})::timestamptz > ${nextPlaceholder(values, opv)}`);
+            } else {
+              parts.push(`${col} > ${nextPlaceholder(values, toPgValue(opv))}`);
+            }
             break;
           case '$gte':
-            parts.push(`${col} >= ${nextPlaceholder(values, toPgValue(opv))}`);
+            if (opv instanceof Date && col.startsWith('data')) {
+              parts.push(`(${col})::timestamptz >= ${nextPlaceholder(values, opv)}`);
+            } else {
+              parts.push(`${col} >= ${nextPlaceholder(values, toPgValue(opv))}`);
+            }
             break;
           case '$lt':
-            parts.push(`${col} < ${nextPlaceholder(values, toPgValue(opv))}`);
+            if (opv instanceof Date && col.startsWith('data')) {
+              parts.push(`(${col})::timestamptz < ${nextPlaceholder(values, opv)}`);
+            } else {
+              parts.push(`${col} < ${nextPlaceholder(values, toPgValue(opv))}`);
+            }
             break;
           case '$lte':
-            parts.push(`${col} <= ${nextPlaceholder(values, toPgValue(opv))}`);
+            if (opv instanceof Date && col.startsWith('data')) {
+              parts.push(`(${col})::timestamptz <= ${nextPlaceholder(values, opv)}`);
+            } else {
+              parts.push(`${col} <= ${nextPlaceholder(values, toPgValue(opv))}`);
+            }
             break;
           case '$exists':
             parts.push(opv ? `${col} IS NOT NULL` : `${col} IS NULL`);

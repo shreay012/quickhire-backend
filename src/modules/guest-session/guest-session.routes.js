@@ -42,12 +42,17 @@ async function ensureTable() {
 // Validation
 // ---------------------------------------------------------------------------
 const updateSchema = z.object({
-  step:        z.number().int().min(0).max(4).optional(),
+  // step is the step the user is GOING TO (activeStep + 1), so a 5-step
+  // guest flow can legitimately send step=5 on the last advance.
+  step:        z.number().int().min(0).max(10).optional(),
   serviceId:   z.string().optional(),
-  techIds:     z.array(z.string()).optional(),
+  // techIds may come from different code paths with different element types;
+  // accept string or stringified values and normalise server-side.
+  techIds:     z.array(z.unknown()).optional(),
   techNames:   z.string().optional(),
-  hoursData:   z.record(z.unknown()).optional(),
-  pricingData: z.record(z.unknown()).optional(),
+  // hoursData and pricingData are opaque blobs — accept object or array.
+  hoursData:   z.union([z.record(z.unknown()), z.array(z.unknown()), z.null()]).optional(),
+  pricingData: z.union([z.record(z.unknown()), z.array(z.unknown()), z.null()]).optional(),
   gstNumber:   z.string().max(20).optional(),
 });
 
