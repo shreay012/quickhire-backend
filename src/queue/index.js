@@ -99,6 +99,12 @@ export function getQueue(name) {
   return queues[name];
 }
 
+// Lets dashboard check before calling getQueue — avoids race condition
+// when DISABLE_QUEUE_WORKERS=true and initializeQueues hasn't run yet.
+export function isQueueInitialized(name) {
+  return Boolean(queues[name]);
+}
+
 /**
  * Register a queue worker with handler
  * 
