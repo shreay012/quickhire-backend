@@ -88,6 +88,14 @@ function pgDriverEnabled(table) {
   // generic-doc code path; the strict proxy intercepts before the
   // PgCursor / pgUpsert ever runs.
   if (STRICT_SCHEMA_TABLES.has(table)) return false;
+  // When Mongo is explicitly disabled (MONGO_URI=disabled/skip/none) and
+  // PG is available, ALL generic tables must route to PG — regardless of
+  // whether PG_DRIVER_<TABLE> is set. Without this, the insertOne /
+  // findOne etc. fall through to mongoColLazy() → getDb() →
+  // Error('DB not connected') → 500 INTERNAL_ERROR on every write.
+  // This is the correct behaviour for a PG-only deployment so callers
+  // don't have to enumerate every table in environment variables.
+  if (mongoIsDisabled() && !!getPgPool()) return true;
   // env.js declares PG_DRIVER_<TABLE> for every table we mirror, so the
   // zod-validated env object is now authoritative. process.env is a
   // safety fallback for any table not yet listed in env.js — keeps the
