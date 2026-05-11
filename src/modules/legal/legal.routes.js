@@ -122,7 +122,7 @@ r.get('/doc/:countryCode/:docType/versions', asyncHandler(async (req, res) => {
 
 r.get('/status', roleGuard(['user', 'admin', 'ops', 'finance', 'support', 'growth', 'viewer', 'super_admin']), asyncHandler(async (req, res) => {
   const { country } = req.geo || { country: 'IN' };
-  const userId = new ObjectId(req.user.id);
+  const userId = String(req.user.id);
 
   // Load current published docs for this country
   const currentDocs = await docsCol()
@@ -192,7 +192,7 @@ r.get('/status', roleGuard(['user', 'admin', 'ops', 'finance', 'support', 'growt
 
 r.post('/accept', roleGuard(['user', 'admin', 'ops', 'finance', 'support', 'growth', 'super_admin']), validate(acceptSchema), asyncHandler(async (req, res) => {
   const { docType, version, countryCode } = req.body;
-  const userId = new ObjectId(req.user.id);
+  const userId = String(req.user.id);
   const now = new Date();
 
   // Verify the doc version exists and is published

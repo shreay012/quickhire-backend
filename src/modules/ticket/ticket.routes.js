@@ -27,7 +27,7 @@ r.post('/ticket', roleGuard(['user', 'guest']), validate(createSchema), asyncHan
   const now = new Date();
   // Guest checkouts have a string id ('guest_<nanoid>') — keep raw.
   let userIdField;
-  try { userIdField = new ObjectId(req.user.id); }
+  try { userIdField = req.user.id; }
   catch { userIdField = req.user.id; }
   const bid = req.body.bookingId;
   const bookingObjectId = (bid && /^[0-9a-fA-F]{24}$/.test(bid)) ? new ObjectId(bid) : null;
@@ -47,7 +47,7 @@ r.post('/ticket', roleGuard(['user', 'guest']), validate(createSchema), asyncHan
 // GET /api/tickets/user/all-tickets
 r.get('/user/all-tickets', roleGuard(['user', 'admin']), asyncHandler(async (req, res) => {
   const p = paginate({ page: req.query.page, pageSize: req.query.limit || 100 });
-  const filter = req.user.role === 'admin' ? {} : { userId: new ObjectId(req.user.id) };
+  const filter = req.user.role === 'admin' ? {} : { userId: req.user.id };
   const [items, total] = await Promise.all([
     tickets().find(filter).sort({ createdAt: -1 }).skip(p.skip).limit(p.limit).toArray(),
     tickets().countDocuments(filter),
@@ -79,7 +79,7 @@ r.post('/:ticketId/message',
 
     const doc = {
       ticketId,
-      senderId: new ObjectId(req.user.id),
+      senderId: req.user.id,
       senderRole: req.user.role,
       msg: req.body.msg,
       createdAt: new Date(),

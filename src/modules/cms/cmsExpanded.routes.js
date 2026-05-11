@@ -95,7 +95,7 @@ r.post('/pages', adminGuard, permGuard(PERMS.CMS_WRITE), validate(pageSchema), a
   // R5 — country admin is forced to their own country; super_admin may pass any (or null = global).
   resolveWriteCountry(req);
   const now = new Date();
-  const doc = { ...req.body, version: 1, createdBy: new ObjectId(req.user.id), createdAt: now, updatedAt: now, publishedAt: req.body.status === 'published' ? now : null };
+  const doc = { ...req.body, version: 1, createdBy: req.user.id, createdAt: now, updatedAt: now, publishedAt: req.body.status === 'published' ? now : null };
   const ins = await pagesCol().insertOne(doc);
   res.status(201).json({ success: true, data: { _id: ins.insertedId, ...doc } });
 }));
@@ -340,7 +340,7 @@ r.post('/banners', adminGuard, permGuard(PERMS.CMS_WRITE), validate(bannerSchema
     ...body,
     validFrom: body.validFrom ? new Date(body.validFrom) : undefined,
     validTo:   body.validTo   ? new Date(body.validTo)   : undefined,
-    createdBy: new ObjectId(req.user.id),
+    createdBy: req.user.id,
     createdAt: now,
     updatedAt: now,
   };
@@ -480,7 +480,7 @@ r.post('/notification-templates', adminGuard, permGuard(PERMS.CMS_WRITE), valida
   // R5 — country admin forced to own country (templates may be country-tagged or global).
   resolveWriteCountry(req);
   const now = new Date();
-  const doc = { ...req.body, createdBy: new ObjectId(req.user.id), createdAt: now, updatedAt: now };
+  const doc = { ...req.body, createdBy: req.user.id, createdAt: now, updatedAt: now };
   const ins = await templatesCol().insertOne(doc);
   res.status(201).json({ success: true, data: { _id: ins.insertedId, ...doc } });
 }));
@@ -533,7 +533,7 @@ r.post('/articles', adminGuard, permGuard(PERMS.CMS_WRITE), validate(articleSche
   // R5 — country admin forced to own country.
   resolveWriteCountry(req);
   const now = new Date();
-  const doc = { ...req.body, publishedAt: req.body.status === 'published' ? now : null, createdBy: new ObjectId(req.user.id), createdAt: now, updatedAt: now };
+  const doc = { ...req.body, publishedAt: req.body.status === 'published' ? now : null, createdBy: req.user.id, createdAt: now, updatedAt: now };
   const ins = await articlesCol().insertOne(doc);
   res.status(201).json({ success: true, data: { _id: ins.insertedId, ...doc } });
 }));

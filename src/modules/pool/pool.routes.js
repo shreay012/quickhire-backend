@@ -165,7 +165,7 @@ r.post('/leaves', permGuard(PERMS.POOL_WRITE), validate(leaveSchema), asyncHandl
     reason: req.body.reason,
     type: req.body.type,
     status: 'approved',
-    approvedBy: new ObjectId(req.user.id),
+    approvedBy: req.user.id,
     conflictingBookings: conflicts,
     createdAt: new Date(),
   };
@@ -240,7 +240,7 @@ r.patch('/kyc/:id/review', permGuard(PERMS.KYC_WRITE), validate(z.object({
   await kycCol().updateOne({ _id: id }, { $set: {
     status: req.body.status,
     notes: req.body.notes,
-    reviewedBy: new ObjectId(req.user.id),
+    reviewedBy: req.user.id,
     reviewedAt: new Date(),
     updatedAt: new Date(),
   }});

@@ -98,7 +98,7 @@ adminRouter.post('/', permGuard(PERMS.FLAG_WRITE), validate(flagSchema), asyncHa
   if (exists) throw new AppError('RESOURCE_CONFLICT', 'Flag key already exists', 409);
 
   const now = new Date();
-  const doc = { ...req.body, updatedBy: new ObjectId(req.user.id), createdAt: now, updatedAt: now };
+  const doc = { ...req.body, updatedBy: req.user.id, createdAt: now, updatedAt: now };
   const ins = await flagsCol().insertOne(doc);
   await redis.del('flags:all').catch(() => {});
   res.status(201).json({ success: true, data: { _id: ins.insertedId, ...doc } });
@@ -106,7 +106,7 @@ adminRouter.post('/', permGuard(PERMS.FLAG_WRITE), validate(flagSchema), asyncHa
 
 // Update flag
 adminRouter.put('/:key', permGuard(PERMS.FLAG_WRITE), validate(flagSchema.partial()), asyncHandler(async (req, res) => {
-  const $set = { ...req.body, updatedBy: new ObjectId(req.user.id), updatedAt: new Date() };
+  const $set = { ...req.body, updatedBy: req.user.id, updatedAt: new Date() };
   delete $set._id;
   const result = await flagsCol().updateOne({ key: req.params.key }, { $set });
   if (!result.matchedCount) throw new AppError('RESOURCE_NOT_FOUND', 'Flag not found', 404);
@@ -118,7 +118,7 @@ adminRouter.put('/:key', permGuard(PERMS.FLAG_WRITE), validate(flagSchema.partia
 adminRouter.patch('/:key/toggle', permGuard(PERMS.FLAG_WRITE), asyncHandler(async (req, res) => {
   const flag = await flagsCol().findOne({ key: req.params.key });
   if (!flag) throw new AppError('RESOURCE_NOT_FOUND', 'Flag not found', 404);
-  await flagsCol().updateOne({ key: req.params.key }, { $set: { enabled: !flag.enabled, updatedBy: new ObjectId(req.user.id), updatedAt: new Date() } });
+  await flagsCol().updateOne({ key: req.params.key }, { $set: { enabled: !flag.enabled, updatedBy: req.user.id, updatedAt: new Date() } });
   await redis.del('flags:all').catch(() => {});
   res.json({ success: true, data: { enabled: !flag.enabled } });
 }));

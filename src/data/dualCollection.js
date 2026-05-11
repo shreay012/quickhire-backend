@@ -51,7 +51,9 @@ import { logger } from '../config/logger.js';
 
 // Lightweight repeat of db.js's mongoDisabled() check — duplicated to
 // avoid a circular import with src/config/db.js.
-function mongoIsDisabled() {
+// Exported so typed repos (users.js, sessions.js) can share the same
+// gate without duplicating the logic.
+export function mongoIsDisabled() {
   const u = String(env.MONGO_URI || '').trim().toLowerCase();
   return !u || u === 'disabled' || u === 'skip' || u === 'none';
 }

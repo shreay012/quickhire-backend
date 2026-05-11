@@ -1234,7 +1234,7 @@ r.post('/bookings/:id/messages',
     const doc = {
       roomId, bookingId: id,
       serviceId: job.services?.[0]?.serviceId || job.serviceId || null,
-      senderId: new ObjectId(req.user.id),
+      senderId: req.user.id,
       senderRole: 'admin',
       senderName: 'Admin',
       msg: req.body.msg,
@@ -1282,7 +1282,7 @@ r.post('/tickets/:id/message',
     const messagesCol = getDualDb().collection('ticket_messages');
     const doc = {
       ticketId,
-      senderId: new ObjectId(req.user.id),
+      senderId: req.user.id,
       senderRole: 'admin',
       msg: req.body.msg,
       createdAt: new Date(),

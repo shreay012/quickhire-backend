@@ -363,7 +363,7 @@ r.post('/admin/posts', adminGuard, notViewer, validate(PostSchema), asyncHandler
     publishedAt,
     readingTimeMinutes,
     viewCount:          0,
-    createdBy:          new ObjectId(req.user.id),
+    createdBy:          req.user.id,
     createdAt:          now,
     updatedAt:          now,
   };

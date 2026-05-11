@@ -271,7 +271,7 @@ r.post('/', roleGuard(['user', 'admin', 'guest']), asyncHandler(async (req, res)
     // ('guest_<nanoid>') for guest checkouts. Try ObjectId; otherwise
     // store the raw string so guest jobs can still be looked up.
     let userIdField;
-    try { userIdField = new ObjectId(req.user.id); }
+    try { userIdField = req.user.id; }
     catch { userIdField = req.user.id; }
     const doc = {
       userId: userIdField,
@@ -317,7 +317,7 @@ r.post('/', roleGuard(['user', 'admin', 'guest']), asyncHandler(async (req, res)
   if (!parsed.success) throw new AppError('VALIDATION_ERROR', 'Invalid job payload', 422);
   const body = parsed.data;
   let userIdLegacy;
-  try { userIdLegacy = new ObjectId(req.user.id); }
+  try { userIdLegacy = req.user.id; }
   catch { userIdLegacy = req.user.id; }
   const doc = {
     bookingId: toObjectId(body.bookingId, 'bookingId'),

@@ -48,7 +48,7 @@ async function loadOwnAssignment(req) {
   if (!job.resourceId || String(job.resourceId) !== String(req.user.id)) {
     throw new AppError('FORBIDDEN', 'Not your assignment', 403);
   }
-  return { job, jobId: oid, resourceId: new ObjectId(req.user.id) };
+  return { job, jobId: oid, resourceId: req.user.id };
 }
 
 async function hydrateJobs(jobs) {
@@ -114,7 +114,7 @@ r.get('/assignments', asyncHandler(async (req, res) => {
   const p = paginate(req.query);
   // Scope adds { country, resourceId } automatically. Keep explicit resourceId
   // for legacy 'admin' callers (rare; this endpoint is gated to 'resource').
-  const baseFilter = { resourceId: new ObjectId(req.user.id) };
+  const baseFilter = { resourceId: req.user.id };
   if (req.query.status) baseFilter.status = String(req.query.status);
 
   // Free-text search across customer name / mobile / email and full or
@@ -204,7 +204,7 @@ const logSchema = z.object({
 
 r.post('/time-log', validate(logSchema), asyncHandler(async (req, res) => {
   const bookingId = new ObjectId(req.body.bookingId);
-  const resourceId = new ObjectId(req.user.id);
+  const resourceId = req.user.id;
   // Ensure ownership
   const job = await jobsCol().findOne({ _id: bookingId });
   if (!job || String(job.resourceId) !== String(resourceId)) {
@@ -233,7 +233,7 @@ r.post('/time-log', validate(logSchema), asyncHandler(async (req, res) => {
 
 r.get('/time-logs', asyncHandler(async (req, res) => {
   const p = paginate(req.query);
-  const filter = { resourceId: new ObjectId(req.user.id) };
+  const filter = { resourceId: req.user.id };
   const [items, total] = await Promise.all([
     timeLogsCol().find(filter).sort({ createdAt: -1 }).skip(p.skip).limit(p.limit).toArray(),
     timeLogsCol().countDocuments(filter),

@@ -18,12 +18,21 @@ import { getPg } from '../../db/postgres.js';
 import { users as usersTable } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
+import { mongoIsDisabled } from '../dualCollection.js';
 
 const TABLE = 'users';
 const mongoCol = () => getMongo().collection(TABLE);
 
 function readsFromPg() {
-  return env.PG_DRIVER_USERS === 'postgres' && !!getPg();
+  const pg = getPg();
+  if (!pg) return false;
+  // Explicit opt-in always wins.
+  if (env.PG_DRIVER_USERS === 'postgres') return true;
+  // Auto-route: when Mongo is disabled there's nowhere else to write.
+  // Prevents silent fallback to the ephemeral in-memory store which
+  // caused "User not found" on every request after OTP verify.
+  if (mongoIsDisabled()) return true;
+  return false;
 }
 function dualWritesEnabled() {
   return String(env.PG_DUAL_WRITE || '').split(',').map((s) => s.trim()).includes(TABLE) && !!getPg();

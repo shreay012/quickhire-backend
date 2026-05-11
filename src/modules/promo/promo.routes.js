@@ -111,7 +111,7 @@ adminRouter.post('/', permGuard(PERMS.PROMO_WRITE), validate(promoSchema), async
     code: req.body.code.toUpperCase(),
     validFrom: new Date(req.body.validFrom),
     validTo: new Date(req.body.validTo),
-    createdBy: new ObjectId(req.user.id),
+    createdBy: req.user.id,
     usedCount: 0,
     createdAt: now,
     updatedAt: now,
@@ -143,7 +143,7 @@ adminRouter.post('/:id/clone', permGuard(PERMS.PROMO_WRITE), validate(z.object({
 
   const { _id, createdAt, ...rest } = src;
   const now = new Date();
-  const cloned = { ...rest, code: req.body.code.toUpperCase(), usedCount: 0, active: false, createdBy: new ObjectId(req.user.id), createdAt: now, updatedAt: now };
+  const cloned = { ...rest, code: req.body.code.toUpperCase(), usedCount: 0, active: false, createdBy: req.user.id, createdAt: now, updatedAt: now };
   const ins = await codesCol().insertOne(cloned);
   res.status(201).json({ success: true, data: { _id: ins.insertedId, ...cloned } });
 }));

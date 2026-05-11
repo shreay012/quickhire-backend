@@ -15,7 +15,7 @@ r.get(
   roleGuard(['user', 'pm', 'admin', 'resource']),
   asyncHandler(async (req, res) => {
     const db = getDualDb();
-    const userId = new ObjectId(req.user.id);
+    const userId = req.user.id;
 
     const [unreadNotificationsCount, totalPendingJobs, cartItemCount] = await Promise.all([
       db.collection('notifications').countDocuments({ userId, read: { $ne: true } }),

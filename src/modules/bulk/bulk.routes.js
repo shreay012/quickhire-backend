@@ -62,7 +62,7 @@ r.post('/reassign', permGuard(PERMS.BOOKING_WRITE), validate(reassignSchema), as
       projectManager: { _id: pm._id, name: pm.name, mobile: pm.mobile },
       status: 'assigned_to_pm',
       reassignReason: reason,
-      reassignedBy: new ObjectId(req.user.id),
+      reassignedBy: req.user.id,
       reassignedAt: new Date(),
       updatedAt: new Date(),
     }},
@@ -116,7 +116,7 @@ r.post('/cancel', permGuard(PERMS.BOOKING_WRITE), validate(cancelSchema), asyncH
     { $set: {
       status: 'cancelled',
       cancelReason: reason,
-      cancelledBy: new ObjectId(req.user.id),
+      cancelledBy: req.user.id,
       cancelledAt: new Date(),
       updatedAt: new Date(),
     }},
@@ -138,7 +138,7 @@ r.post('/refund-trigger', permGuard(PERMS.REFUND_APPROVE), validate(z.object({
     bookingId: toObjectId(bookingId),
     reason,
     status: 'pending',
-    requestedBy: new ObjectId(req.user.id),
+    requestedBy: req.user.id,
     createdAt: now,
     updatedAt: now,
   }));

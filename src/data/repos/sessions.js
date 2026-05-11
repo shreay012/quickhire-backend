@@ -13,12 +13,18 @@ import { getPg } from '../../db/postgres.js';
 import { sessions as sessionsTable } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
+import { mongoIsDisabled } from '../dualCollection.js';
 
 const TABLE = 'sessions';
 const mongoCol = () => getMongo().collection(TABLE);
 
 function readsFromPg() {
-  return env.PG_DRIVER_SESSIONS === 'postgres' && !!getPg();
+  const pg = getPg();
+  if (!pg) return false;
+  if (env.PG_DRIVER_SESSIONS === 'postgres') return true;
+  // Auto-route when Mongo is disabled — prevents silent in-memory fallback.
+  if (mongoIsDisabled()) return true;
+  return false;
 }
 function dualWritesEnabled() {
   return String(env.PG_DUAL_WRITE || '').split(',').map((s) => s.trim()).includes(TABLE) && !!getPg();

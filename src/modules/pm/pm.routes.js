@@ -98,7 +98,7 @@ r.get('/bookings', asyncHandler(async (req, res) => {
   // Scope brings in { country, pmId } for pm role automatically. We keep the
   // explicit pmId fallback for the legacy 'admin' role calling this same
   // endpoint (rare path; backward compat).
-  const baseFilter = { pmId: new ObjectId(req.user.id) };
+  const baseFilter = { pmId: req.user.id };
   if (req.query.status) baseFilter.status = String(req.query.status);
 
   // Free-text search across the bookingId tail, raw mongo _id, customer

@@ -136,7 +136,7 @@ affiliateRouter.post('/', permGuard(PERMS.PROMO_WRITE), validate(affiliateSchema
     validFrom: new Date(req.body.validFrom),
     validTo: new Date(req.body.validTo),
     usedCount: 0,
-    createdBy: new ObjectId(req.user.id),
+    createdBy: req.user.id,
     createdAt: now,
     updatedAt: now,
   };

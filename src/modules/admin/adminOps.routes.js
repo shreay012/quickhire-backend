@@ -51,7 +51,7 @@ r.post('/bookings/:id/reassign', permGuard(PERMS.BOOKING_WRITE), validate(z.obje
     throw new AppError('VALIDATION_ERROR', 'Cannot reassign a completed or cancelled booking', 400);
   }
 
-  const $set = { updatedAt: new Date(), reassignReason: req.body.reason, reassignedBy: new ObjectId(req.user.id), reassignedAt: new Date() };
+  const $set = { updatedAt: new Date(), reassignReason: req.body.reason, reassignedBy: req.user.id, reassignedAt: new Date() };
   const notifications = [];
 
   if (req.body.pmId) {
@@ -158,7 +158,7 @@ r.post('/refunds', permGuard(PERMS.BOOKING_WRITE), validate(z.object({
     notes: req.body.notes,
     partial: req.body.partial,
     status: 'pending_approval',
-    requestedBy: new ObjectId(req.user.id),
+    requestedBy: req.user.id,
     approvedBy: null,
     approvedAt: null,
     processedAt: null,
@@ -186,7 +186,7 @@ r.patch('/refunds/:id/review', permGuard(PERMS.REFUND_APPROVE), validate(z.objec
   const newStatus = req.body.action === 'approve' ? 'approved' : 'rejected';
   await refundsCol().updateOne({ _id: id }, { $set: {
     status: newStatus,
-    approvedBy: new ObjectId(req.user.id),
+    approvedBy: req.user.id,
     approvedAt: new Date(),
     notes: req.body.notes,
     updatedAt: new Date(),
@@ -278,7 +278,7 @@ r.post('/payouts/compute', permGuard(PERMS.PAYOUT_WRITE), validate(z.object({
     status: 'computed',
     cycleStart,
     cycleEnd,
-    computedBy: new ObjectId(req.user.id),
+    computedBy: req.user.id,
     processedAt: null,
     txnRef: null,
     createdAt: new Date(),
@@ -300,7 +300,7 @@ r.patch('/payouts/:id/process', permGuard(PERMS.PAYOUT_WRITE), validate(z.object
     txnRef: req.body.txnRef,
     notes: req.body.notes,
     processedAt: new Date(),
-    processedBy: new ObjectId(req.user.id),
+    processedBy: req.user.id,
     updatedAt: new Date(),
   }});
   res.json({ success: true });
@@ -374,7 +374,7 @@ r.post('/tickets/:id/escalate', permGuard(PERMS.TICKET_WRITE), validate(z.object
 
   const $set = {
     status: 'escalated',
-    escalatedBy: new ObjectId(req.user.id),
+    escalatedBy: req.user.id,
     escalatedAt: new Date(),
     escalationNotes: req.body.notes,
     updatedAt: new Date(),
@@ -431,7 +431,7 @@ r.patch('/reviews/:id/moderate', permGuard(PERMS.KYC_WRITE), validate(z.object({
   await reviewsCol().updateOne({ _id: id }, { $set: {
     moderationStatus: req.body.status,
     moderationNotes: req.body.notes,
-    moderatedBy: new ObjectId(req.user.id),
+    moderatedBy: req.user.id,
     moderatedAt: new Date(),
     updatedAt: new Date(),
   }});
