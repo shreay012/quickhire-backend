@@ -110,7 +110,9 @@ r.get('/dashboard', asyncHandler(async (req, res) => {
   const data = await getOrSet(cacheKey, async () => {
     const userFilter = cs ? { role: 'user', country: cs } : { role: 'user' };
     const jobFilter  = cs ? { country: cs } : {};
-    const payFilter  = cs ? { status: 'paid', country: cs } : { status: 'paid' };
+    const payFilter  = cs
+      ? { status: { $in: ['paid', 'captured', 'authorized'] }, country: cs }
+      : { status: { $in: ['paid', 'captured', 'authorized'] } };
     // Replaced Mongo .aggregate() with find()+JS folds so reads route via
     // dualCollection on PG. countDocuments stays — already PG-supported.
     const [totalUsers, totalBookings, paidRows, statusRows] = await Promise.all([
@@ -341,8 +343,28 @@ async function hydratePayments(payments) {
   return payments.map((p) => {
     const u = uMap.get(String(p.userId));
     const j = jMap.get(String(p.jobId));
+
+    // Razorpay stores intermediate statuses before our webhook normalises them.
+    // Treat 'captured' and 'authorized' as 'paid' so the UI is consistent.
+    const normalizedStatus =
+      p.status === 'captured' || p.status === 'authorized' ? 'paid' : p.status;
+
+    // Old records may lack provider. Infer from ID patterns.
+    let provider = p.provider;
+    if (!provider) {
+      if (p.mock || String(p.orderId || '').startsWith('order_fallback_') || String(p.paymentId || '').startsWith('pay_fallback_')) {
+        provider = 'mock';
+      } else if (String(p.paymentId || '').startsWith('pi_') || String(p.orderId || '').startsWith('pi_')) {
+        provider = 'stripe';
+      } else if (String(p.orderId || '').startsWith('order_')) {
+        provider = 'razorpay';
+      }
+    }
+
     return {
       ...p,
+      status:         normalizedStatus,
+      provider:       provider || p.provider || '',
       // Inherit country from job when missing on the payment record (old data)
       country:        p.country || j?.country || '',
       customerName:   u?.name   || '',
@@ -409,7 +431,7 @@ r.get('/payments/stats', permGuard(PERMS.PAYMENT_READ), asyncHandler(async (req,
     // Replaced 3 Mongo $group pipelines with field-projected find()+JS folds.
     const [allRows, paidRows, mockCount] = await Promise.all([
       paymentsCol().find(scopeMatch, { projection: { status: 1, provider: 1, amount: 1 } }).toArray(),
-      paymentsCol().find({ status: 'paid', ...scopeMatch }, { projection: { currency: 1, amount: 1 } }).toArray(),
+      paymentsCol().find({ status: { $in: ['paid', 'captured', 'authorized'] }, ...scopeMatch }, { projection: { currency: 1, amount: 1 } }).toArray(),
       paymentsCol().countDocuments({ mock: true, ...scopeMatch }),
     ]);
     const countsByStatus = allRows.reduce((acc, p) => {
