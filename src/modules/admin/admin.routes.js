@@ -19,6 +19,7 @@ import { getSchedulingConfig, setSchedulingConfig } from '../availability/availa
 import { PERMS, ROLES } from '../../config/rbac.js';
 import { COUNTRIES } from '../service/service.model.js';
 import * as servicesRepo from '../../data/repos/services.js';
+import * as usersRepo from '../../data/repos/users.js';
 import { recordAudit } from '../audit/audit.service.js';
 import { getPg } from '../../db/postgres.js';
 import { users as pgUsers } from '../../db/schema.js';
@@ -74,15 +75,16 @@ async function hydrateJobs(jobs) {
       if (s?.serviceId) svcIds.add(String(s.serviceId));
     }
   }
-  const [users, svcs] = await Promise.all([
-    userIds.size || pmIds.size || resIds.size
-      ? usersCol().find({ _id: { $in: [...userIds, ...pmIds, ...resIds] } }).toArray()
-      : [],
+  const allUserIds = [...new Set([...userIds, ...pmIds, ...resIds])];
+  const [userList, svcs] = await Promise.all([
+    allUserIds.length
+      ? Promise.all(allUserIds.map((id) => usersRepo.findById(id).catch(() => null)))
+      : Promise.resolve([]),
     svcIds.size
       ? servicesCol().find({ _id: { $in: [...svcIds] } }).toArray()
       : [],
   ]);
-  const uMap = new Map(users.map((u) => [String(u._id), u]));
+  const uMap = new Map(userList.filter(Boolean).map((u) => [String(u._id), u]));
   const sMap = new Map(svcs.map((s) => [String(s._id), s]));
   return jobs.map((j) => {
     const u = uMap.get(String(j.userId));
@@ -326,19 +328,22 @@ async function hydratePayments(payments) {
     if (p.jobId)  jobIds.add(String(p.jobId));
   }
   const toOid = (x) => { try { return new ObjectId(String(x)); } catch { return null; } };
-  const [users, jobs] = await Promise.all([
+
+  // Use usersRepo.findById() instead of a raw collection query so it routes
+  // correctly for both MongoDB (_id as ObjectId) and PostgreSQL (_id as VARCHAR).
+  // The dualCollection adapter passes ObjectId objects to PG which can't match
+  // VARCHAR _id values, causing every user lookup to return null.
+  const [userList, jobs] = await Promise.all([
     userIds.size
-      ? usersCol().find({ _id: { $in: [...userIds].map(toOid).filter(Boolean) } })
-          .project({ name: 1, mobile: 1, email: 1 })
-          .toArray()
-      : [],
+      ? Promise.all([...userIds].map((id) => usersRepo.findById(id).catch(() => null)))
+      : Promise.resolve([]),
     jobIds.size
       ? jobsCol().find({ _id: { $in: [...jobIds].map(toOid).filter(Boolean) } })
           .project({ title: 1, status: 1, services: 1, pricing: 1, country: 1 })
           .toArray()
       : [],
   ]);
-  const uMap = new Map(users.map((u) => [String(u._id), u]));
+  const uMap = new Map(userList.filter(Boolean).map((u) => [String(u._id), u]));
   const jMap = new Map(jobs.map((j) => [String(j._id), j]));
   return payments.map((p) => {
     const u = uMap.get(String(p.userId));
