@@ -361,10 +361,26 @@ async function hydratePayments(payments) {
       }
     }
 
+    // Extract createdAt from ObjectId timestamp when the field was never set
+    let createdAt = p.createdAt;
+    if (!createdAt && p._id) {
+      try {
+        const ts = parseInt(String(p._id).slice(0, 8), 16);
+        if (ts > 0) createdAt = new Date(ts * 1000);
+      } catch { /* ignore */ }
+    }
+
+    // Fall back to job pricing when the payment record was stored with amount=0
+    const amount = (Number(p.amount) || 0) > 0
+      ? p.amount
+      : (j?.pricing?.total ?? j?.pricing?.subtotal ?? p.amount ?? 0);
+
     return {
       ...p,
       status:         normalizedStatus,
       provider:       provider || p.provider || '',
+      createdAt:      createdAt || p.createdAt,
+      amount,
       // Inherit country from job when missing on the payment record (old data)
       country:        p.country || j?.country || '',
       customerName:   u?.name   || '',
