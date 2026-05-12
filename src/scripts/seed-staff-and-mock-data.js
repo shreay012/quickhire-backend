@@ -96,20 +96,36 @@ async function upsertUserDirect(user) {
 }
 
 async function seedUsers() {
-  // Use raw SQL via the pg pool so we don't need drizzle's tagged-template wiring.
   const pg = getPg();
+  const { users, } = await import('../db/schema.js');
+  const { eq, or } = await import('drizzle-orm');
   const out = [];
+
   for (const u of STAFF_USERS) {
-    const exist = await pg.select().from((await import('../db/schema.js')).users)
-      .where((await import('drizzle-orm')).eq((await import('../db/schema.js')).users.email, u.email))
-      .limit(1);
-    if (exist[0]) {
-      out.push(exist[0]);
-      logger.info({ email: u.email, role: u.role, country: u.country, _id: exist[0]._id }, 'user exists');
+    // Match by email OR mobile so OTP-created users (no email) are found too.
+    const byEmail  = u.email  ? await pg.select().from(users).where(eq(users.email,  u.email)).limit(1)  : [];
+    const byMobile = u.mobile ? await pg.select().from(users).where(eq(users.mobile, u.mobile)).limit(1) : [];
+    const exist = byEmail[0] || byMobile[0] || null;
+
+    if (exist) {
+      // Always patch country / name / email so OTP-created rows (missing
+      // country) get the correct values. This is the core fix: without
+      // country in the DB the JWT has no country claim → no data filtering.
+      await pg.update(users)
+        .set({
+          country:        u.country   ?? exist.country,
+          name:           u.name      || exist.name,
+          email:          u.email     || exist.email,
+          role:           u.role,
+          updatedAt:      new Date(),
+        })
+        .where(eq(users._id, exist._id));
+      out.push({ ...exist, country: u.country, name: u.name, email: u.email });
+      logger.info({ email: u.email, mobile: u.mobile, role: u.role, country: u.country, _id: exist._id }, 'user updated');
       continue;
     }
+
     const id = newId();
-    const { users } = await import('../db/schema.js');
     await pg.insert(users).values({
       _id:            id,
       mobile:         u.mobile,
@@ -120,9 +136,9 @@ async function seedUsers() {
       specialization: u.specialization || null,
       createdAt:      new Date(),
       updatedAt:      new Date(),
-    });
+    }).onConflictDoNothing();
     out.push({ _id: id, ...u });
-    logger.info({ email: u.email, role: u.role, country: u.country, _id: id }, 'user created');
+    logger.info({ email: u.email, mobile: u.mobile, role: u.role, country: u.country, _id: id }, 'user created');
   }
   return out;
 }
