@@ -7,6 +7,7 @@ import { emitTo } from '../../socket/index.js';
 import { enqueueNotification } from '../notification/notification.service.js';
 import * as repo from './booking.repository.js';
 import { releaseLock } from '../../utils/idempotency.js';
+import { findAdminsByCountry, findSuperAdmins } from '../../data/repos/users.js';
 
 const ALLOWED = {
   pending:        ['confirmed', 'cancelled'],
@@ -20,7 +21,7 @@ const ALLOWED = {
   cancelled:      [],
 };
 
-export async function create({ userId, payload, idemKey, actor }) {
+export async function create({ userId, payload, idemKey, actor, country }) {
   if (idemKey) {
     const cached = await idempotencyGetOrSet(`booking:${userId}:${idemKey}`);
     if (cached) return cached;
@@ -32,10 +33,12 @@ export async function create({ userId, payload, idemKey, actor }) {
     throw new AppError('BOOKING_SLOT_TAKEN', 'Selected slot is no longer available', 409);
   }
 
+  const bookingCountry = (country || payload.country || 'IN').toUpperCase();
   const now = new Date();
   const booking = await repo.insert({
     userId: String(userId),
     serviceId: String(payload.serviceId),
+    country: bookingCountry,
     status: 'pending',
     startTime: new Date(payload.startTime),
     endTime: new Date(payload.endTime),
@@ -59,8 +62,23 @@ export async function create({ userId, payload, idemKey, actor }) {
     at: now,
   });
 
-  await publish('booking.created', { bookingId: String(booking._id), userId });
-  emitTo('role_admin', 'booking:new', { bookingId: String(booking._id), userId });
+  await publish('booking.created', { bookingId: String(booking._id), userId, country: bookingCountry });
+
+  // Notify the country admins for this booking's country; fall back to super_admins.
+  const countryAdmins = await findAdminsByCountry(bookingCountry);
+  const recipients = countryAdmins.length ? countryAdmins : await findSuperAdmins();
+  for (const admin of recipients) {
+    emitTo(`user_${admin._id}`, 'booking:new', { bookingId: String(booking._id), userId, country: bookingCountry });
+    enqueueNotification({
+      userId: String(admin._id),
+      type: 'BOOKING_CREATED',
+      title: 'New booking received',
+      body: `A new ${bookingCountry} booking requires your review.`,
+      data: { bookingId: String(booking._id) },
+    }).catch(() => {});
+  }
+
+  // Notify the customer
   await enqueueNotification({
     userId,
     type: 'BOOKING_CREATED',

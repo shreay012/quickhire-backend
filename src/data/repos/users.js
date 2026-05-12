@@ -236,6 +236,27 @@ export async function updateById(idLike, $set) {
   return doc;
 }
 
+export async function findByRole(role) {
+  if (readsFromPg()) {
+    const rows = await getPg().select().from(usersTable).where(eq(usersTable.role, role));
+    return rows.map(fromPgRow);
+  }
+  return await mongoCol().find({ role }).toArray();
+}
+
+export async function findAdminsByCountry(country) {
+  if (readsFromPg()) {
+    const rows = await getPg().select().from(usersTable)
+      .where(and(eq(usersTable.role, 'admin'), eq(usersTable.country, country)));
+    return rows.map(fromPgRow);
+  }
+  return await mongoCol().find({ role: 'admin', country }).toArray();
+}
+
+export async function findSuperAdmins() {
+  return findByRole('super_admin');
+}
+
 export async function upsertByMobile({ mobile, role, ...rest }) {
   if (readsFromPg()) {
     const existing = await findByMobile(mobile, role);

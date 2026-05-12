@@ -26,6 +26,7 @@ export const createBooking = asyncHandler(async (req, res) => {
     payload: req.body,
     idemKey,
     actor: req.user,
+    country,
   });
   res.status(201).json({ success: true, data: booking });
 });
