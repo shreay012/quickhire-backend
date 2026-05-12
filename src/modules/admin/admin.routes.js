@@ -380,6 +380,13 @@ async function hydratePayments(payments) {
           ? p.gatewayAmount
           : (j?.pricing?.total ?? j?.pricing?.subtotal ?? 0)));
 
+    // Customer: prefer user-join result (has name); fall back to denormalised
+    // fields stored on the payment record at order-create time so records
+    // created before the user set a display name still show contact info.
+    const customerName   = u?.name   || '';
+    const customerMobile = u?.mobile || p.customerMobile || '';
+    const customerEmail  = u?.email  || p.customerEmail  || '';
+
     return {
       ...p,
       status:         normalizedStatus,
@@ -388,9 +395,9 @@ async function hydratePayments(payments) {
       amount,
       // Inherit country from job when missing on the payment record (old data)
       country:        p.country || j?.country || '',
-      customerName:   u?.name   || '',
-      customerMobile: u?.mobile || '',
-      customerEmail:  u?.email  || '',
+      customerName,
+      customerMobile,
+      customerEmail,
       jobStatus:      j?.status || '',
       jobTitle:       j?.title  || '',
     };

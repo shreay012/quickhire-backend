@@ -13,16 +13,20 @@ async function handlePaymentSuccess(orderId, paymentId, eventId, eventType) {
   const db = getDualDb();
   const payments = db.collection('payments');
 
-  const updated = await payments.findOneAndUpdate(
+  const updateResult = await payments.updateOne(
     { orderId },
     {
       $set: { paymentId, status: 'paid', updatedAt: new Date() },
       $addToSet: { rawWebhookEvents: { id: eventId, type: eventType, at: new Date() } },
     },
-    { returnDocument: 'after' },
   );
 
-  const p = updated.value || updated;
+  if (updateResult.matchedCount === 0) {
+    logger.warn({ orderId, eventType }, 'webhook: no payment record found for orderId — skipping downstream updates');
+    return;
+  }
+
+  const p = await payments.findOne({ orderId });
   if (!p) return;
 
   if (p.bookingId) {

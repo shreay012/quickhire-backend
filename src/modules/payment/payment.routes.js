@@ -144,6 +144,9 @@ r.post('/create-order', rateLimitPayment(), roleGuard(['user', 'guest']), valida
   const insertDoc = {
     userId: String(req.user.id),
     isGuest: req.user.role === 'guest',
+    // Denormalise customer contact so admin display never depends on a user join
+    customerEmail:  req.user.email  || null,
+    customerMobile: req.user.mobile || null,
     jobId: String(jobId),
     bookingId: job.bookingId,
     provider: order.gatewayName,
@@ -259,13 +262,19 @@ r.post('/stripe/confirm', rateLimitPayment(), roleGuard(['user']), validate(conf
 ══════════════════════════════════════════════════════════════════ */
 
 async function _confirmPaymentRecord(orderId, paymentId) {
-  const updated = await col().findOneAndUpdate(
+  // Use updateOne + findOne instead of findOneAndUpdate — avoids driver-version
+  // differences in how the result is returned (v4: result.value, v5: result
+  // directly) and makes the "not found" case explicit via matchedCount.
+  const updateResult = await col().updateOne(
     { orderId },
     { $set: { paymentId, signatureValid: true, status: 'paid', updatedAt: new Date() } },
-    { returnDocument: 'after' },
   );
-  const payment = updated.value || updated;
-  if (!payment) throw new AppError('RESOURCE_NOT_FOUND', 'Payment order not found', 404);
+  if (updateResult.matchedCount === 0) {
+    logger.warn({ orderId, paymentId }, '_confirmPaymentRecord: no payment record found for orderId');
+    throw new AppError('RESOURCE_NOT_FOUND', 'Payment order not found', 404);
+  }
+  const payment = await col().findOne({ orderId });
+  if (!payment) throw new AppError('RESOURCE_NOT_FOUND', 'Payment order not found after update', 404);
 
   // Confirm booking state machine transition
   if (payment.bookingId) {
