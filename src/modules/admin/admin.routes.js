@@ -53,6 +53,12 @@ const ticketsCol = () => getDualDb().collection('tickets');
 const servicesCol = () => getDualDb().collection('services');
 
 // Build hydrated job rows (customerName + serviceName + amount + pmName + resourceName) for FE tables.
+function flatName(v) {
+  if (!v) return null;
+  if (typeof v === 'object' && !Array.isArray(v)) return v.en || Object.values(v).find(Boolean) || null;
+  return String(v);
+}
+
 async function hydrateJobs(jobs) {
   if (!jobs.length) return [];
   const userIds = new Set();
@@ -88,7 +94,7 @@ async function hydrateJobs(jobs) {
       ...j,
       customerName: u?.name || u?.mobile || j.customerName || 'N/A',
       customerMobile: u?.mobile || j.customerMobile || '',
-      serviceName: svc?.name || j.serviceName || j.title || 'Service',
+      serviceName: flatName(svc?.name) || j.serviceName || j.title || 'Service',
       amount: j.pricing?.total || j.pricing?.subtotal || j.totalAmount || 0,
       pmName: pm?.name || '',
       pmMobile: pm?.mobile || '',
@@ -109,9 +115,9 @@ r.get('/dashboard', asyncHandler(async (req, res) => {
     // dualCollection on PG. countDocuments stays — already PG-supported.
     const [totalUsers, totalBookings, paidRows, statusRows] = await Promise.all([
       usersCol().countDocuments(userFilter),
-      bookingsCol().countDocuments(jobFilter),
+      jobsCol().countDocuments(jobFilter),
       paymentsCol().find(payFilter, { projection: { amount: 1 } }).toArray(),
-      bookingsCol().find(jobFilter, { projection: { status: 1 } }).toArray(),
+      jobsCol().find(jobFilter, { projection: { status: 1 } }).toArray(),
     ]);
     const revenueTotal = paidRows.reduce((s, p) => s + (Number(p.amount) || 0), 0);
     const bookingsByStatus = statusRows.reduce((acc, j) => {
@@ -137,8 +143,8 @@ r.get('/bookings', asyncHandler(async (req, res) => {
   if (status) filter.status = String(status);
   if (req.countryScope) filter.country = req.countryScope;
   const [rawJobs, total] = await Promise.all([
-    bookingsCol().find(filter).sort({ createdAt: -1 }).skip((pg - 1) * lim).limit(lim).toArray(),
-    bookingsCol().countDocuments(filter),
+    jobsCol().find(filter).sort({ createdAt: -1 }).skip((pg - 1) * lim).limit(lim).toArray(),
+    jobsCol().countDocuments(filter),
   ]);
   const bookings = await hydrateJobs(rawJobs);
   res.json({ success: true, data: { bookings, total, page: pg, limit: lim } });
@@ -148,7 +154,7 @@ r.get('/bookings/:id', asyncHandler(async (req, res) => {
   let job = null;
   const lookupFilter = { _id: new ObjectId(req.params.id) };
   if (req.countryScope) lookupFilter.country = req.countryScope;
-  try { job = await bookingsCol().findOne(lookupFilter); } catch {}
+  try { job = await jobsCol().findOne(lookupFilter); } catch {}
   if (!job) throw new AppError('RESOURCE_NOT_FOUND', 'Booking not found', 404);
   const [hydrated] = await hydrateJobs([job]);
   res.json({ success: true, data: hydrated });
@@ -249,7 +255,7 @@ r.get('/search', rateLimitSearch(), asyncHandler(async (req, res) => {
         serviceName: h.serviceTitle,
         status: h.status,
       })))
-    : bookingsCol().find(bookingFilter).sort({ createdAt: -1 }).limit(cap).toArray();
+    : jobsCol().find(bookingFilter).sort({ createdAt: -1 }).limit(cap).toArray();
 
   const [bookings, customers, payments, tickets] = await Promise.all([
     bookingsTask,
@@ -456,33 +462,33 @@ r.get('/payments/:id', permGuard(PERMS.PAYMENT_READ), asyncHandler(async (req, r
 r.patch('/bookings/:id/confirm', permGuard(PERMS.BOOKING_WRITE), asyncHandler(async (req, res) => {
   const id = toObjectId(req.params.id);
   const scopeFilter = req.countryScope ? { country: req.countryScope } : {};
-  const match = await bookingsCol().findOne({ _id: id, ...scopeFilter });
+  const match = await jobsCol().findOne({ _id: id, ...scopeFilter });
   if (!match) throw new AppError('RESOURCE_NOT_FOUND', 'Booking not found', 404);
-  await bookingsCol().updateOne({ _id: id }, { $set: { status: 'confirmed', updatedAt: new Date() } });
-  const updated = await bookingsCol().findOne({ _id: id });
+  await jobsCol().updateOne({ _id: id }, { $set: { status: 'confirmed', updatedAt: new Date() } });
+  const updated = await jobsCol().findOne({ _id: id });
   res.json({ success: true, data: updated });
 }));
 
 r.patch('/bookings/:id/reject', permGuard(PERMS.BOOKING_WRITE), asyncHandler(async (req, res) => {
   const id = toObjectId(req.params.id);
   const scopeFilter = req.countryScope ? { country: req.countryScope } : {};
-  const match = await bookingsCol().findOne({ _id: id, ...scopeFilter });
+  const match = await jobsCol().findOne({ _id: id, ...scopeFilter });
   if (!match) throw new AppError('RESOURCE_NOT_FOUND', 'Booking not found', 404);
-  await bookingsCol().updateOne(
+  await jobsCol().updateOne(
     { _id: id },
     { $set: { status: 'cancelled', cancelReason: req.body?.reason || '', updatedAt: new Date() } },
   );
-  const updated = await bookingsCol().findOne({ _id: id });
+  const updated = await jobsCol().findOne({ _id: id });
   res.json({ success: true, data: updated });
 }));
 
 r.post('/bookings/:id/confirm', permGuard(PERMS.BOOKING_WRITE), asyncHandler(async (req, res) => {
   const id = toObjectId(req.params.id);
   const scopeFilter = req.countryScope ? { country: req.countryScope } : {};
-  const match = await bookingsCol().findOne({ _id: id, ...scopeFilter });
+  const match = await jobsCol().findOne({ _id: id, ...scopeFilter });
   if (!match) throw new AppError('RESOURCE_NOT_FOUND', 'Booking not found', 404);
-  await bookingsCol().updateOne({ _id: id }, { $set: { status: 'confirmed', updatedAt: new Date() } });
-  const updated = await bookingsCol().findOne({ _id: id });
+  await jobsCol().updateOne({ _id: id }, { $set: { status: 'confirmed', updatedAt: new Date() } });
+  const updated = await jobsCol().findOne({ _id: id });
   res.json({ success: true, data: updated });
 }));
 
@@ -491,11 +497,11 @@ r.post('/bookings/:id/assign-pm', permGuard(PERMS.BOOKING_WRITE), validate(assig
   const pm = await usersCol().findOne({ _id: toObjectId(req.body.pmId, 'pmId'), role: 'pm' });
   if (!pm) throw new AppError('RESOURCE_NOT_FOUND', 'PM not found', 404);
   const id = toObjectId(req.params.id);
-  await bookingsCol().updateOne(
+  await jobsCol().updateOne(
     { _id: id },
     { $set: { pmId: pm._id, projectManager: { _id: pm._id, name: pm.name, mobile: pm.mobile }, status: 'assigned_to_pm', updatedAt: new Date() } },
   );
-  const updated = await bookingsCol().findOne({ _id: id });
+  const updated = await jobsCol().findOne({ _id: id });
   // Real-time socket events
   try {
     const { emitTo } = await import('../../socket/index.js');
@@ -537,7 +543,7 @@ r.post('/bookings/:id/assign-resource', permGuard(PERMS.BOOKING_WRITE), validate
 
   // Prevent double-booking: reject if resource already has an active assignment.
   const ACTIVE_STATUSES = ['assigned_to_pm', 'in_progress', 'paused'];
-  const conflict = await bookingsCol().findOne({
+  const conflict = await jobsCol().findOne({
     resourceId: resource._id,
     status: { $in: ACTIVE_STATUSES },
     _id: { $ne: id }, // allow re-assigning the same booking to the same resource
@@ -547,11 +553,11 @@ r.post('/bookings/:id/assign-resource', permGuard(PERMS.BOOKING_WRITE), validate
   }
 
   // Do NOT force in_progress — status stays at its current value; the PM starts work explicitly.
-  await bookingsCol().updateOne(
+  await jobsCol().updateOne(
     { _id: id },
     { $set: { resourceId: resource._id, assignedResource: { _id: resource._id, name: resource.name, mobile: resource.mobile }, updatedAt: new Date() } },
   );
-  const updated = await bookingsCol().findOne({ _id: id });
+  const updated = await jobsCol().findOne({ _id: id });
   // Notify resource
   try {
     const { enqueueNotification } = await import('../notification/notification.service.js');
@@ -1044,13 +1050,13 @@ r.get('/dashboard/stats', asyncHandler(async (req, res) => {
       totalPMs, totalResources, revenueRows,
     ] = await Promise.all([
       usersCol().countDocuments({ role: 'user', ...uf }),
-      bookingsCol().countDocuments(jf),
-      bookingsCol().countDocuments({ status: { $in: ['pending', 'confirmed'] }, ...jf }),
-      bookingsCol().countDocuments({ status: { $in: ['assigned_to_pm', 'in_progress'] }, ...jf }),
+      jobsCol().countDocuments(jf),
+      jobsCol().countDocuments({ status: { $in: ['pending', 'confirmed'] }, ...jf }),
+      jobsCol().countDocuments({ status: { $in: ['assigned_to_pm', 'in_progress'] }, ...jf }),
       usersCol().countDocuments({ role: 'pm', ...uf }),
       usersCol().countDocuments({ role: 'resource', ...uf }),
       // Replaced Mongo $group(sum pricing.total) with projected find()+JS reduce.
-      bookingsCol().find(
+      jobsCol().find(
         { status: { $nin: ['cancelled'] }, ...jf },
         { projection: { 'pricing.total': 1, totalAmount: 1 } },
       ).toArray(),
@@ -1077,7 +1083,7 @@ r.get('/dashboard/revenue', asyncHandler(async (req, res) => {
     const matchFilter = { status: { $nin: ['cancelled'] }, createdAt: { $gte: since }, ...(cs ? { country: cs } : {}) };
     // Replaced $dateToString-bucketed aggregate with projected find()+JS bucket.
     // 6-month window keeps the result set bounded for JS-side fold.
-    const rows = await bookingsCol().find(matchFilter, { projection: { createdAt: 1, 'pricing.total': 1, totalAmount: 1 } }).toArray();
+    const rows = await jobsCol().find(matchFilter, { projection: { createdAt: 1, 'pricing.total': 1, totalAmount: 1 } }).toArray();
     const buckets = rows.reduce((acc, j) => {
       const d = j.createdAt instanceof Date ? j.createdAt : new Date(j.createdAt);
       if (Number.isNaN(d.getTime())) return acc;
@@ -1096,7 +1102,7 @@ r.get('/dashboard/recent-activity', asyncHandler(async (req, res) => {
   const cs = req.countryScope;
   const cacheKey = cs ? `admin:dashboard:recent:${cs}` : 'admin:dashboard:recent';
   const data = await getOrSet(cacheKey, async () => {
-    const items = await bookingsCol().find(cs ? { country: cs } : {}).sort({ createdAt: -1 }).limit(10).toArray();
+    const items = await jobsCol().find(cs ? { country: cs } : {}).sort({ createdAt: -1 }).limit(10).toArray();
     return await hydrateJobs(items);
   }, 30);
   res.json({ success: true, data });
@@ -1201,7 +1207,7 @@ const bookingRoomId = (id) => `booking_${String(id)}`;
 
 r.get('/bookings/:id/messages', asyncHandler(async (req, res) => {
   const id = toObjectId(req.params.id);
-  const job = await bookingsCol().findOne({ _id: id });
+  const job = await jobsCol().findOne({ _id: id });
   if (!job) throw new AppError('RESOURCE_NOT_FOUND', 'Booking not found', 404);
   const items = await chatCol()
     .find({ roomId: bookingRoomId(id) })
@@ -1225,7 +1231,7 @@ r.post('/bookings/:id/messages',
       );
     }
     const id = toObjectId(req.params.id);
-    const job = await bookingsCol().findOne({ _id: id });
+    const job = await jobsCol().findOne({ _id: id });
     if (!job) throw new AppError('RESOURCE_NOT_FOUND', 'Booking not found', 404);
     const { emitTo } = await import('../../socket/index.js');
     const { enqueueNotification } = await import('../notification/notification.service.js');
