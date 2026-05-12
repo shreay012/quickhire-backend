@@ -149,6 +149,9 @@ r.post('/create-order', rateLimitPayment(), roleGuard(['user', 'guest']), valida
     provider: order.gatewayName,
     orderId: order.orderId,
     amount: invoice.total,
+    // Gateway raw amount (in rupees) — secondary fallback for admin display
+    // when invoice.total is 0 due to a pricing misconfiguration.
+    gatewayAmount: order.amount ? Math.round(order.amount / 100) : undefined,
     currency,
     country,
     invoice,

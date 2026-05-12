@@ -370,10 +370,15 @@ async function hydratePayments(payments) {
       } catch { /* ignore */ }
     }
 
-    // Fall back to job pricing when the payment record was stored with amount=0
-    const amount = (Number(p.amount) || 0) > 0
+    // Recover amount from invoice / gateway raw amount / job pricing when field is 0/missing
+    const storedAmount = Number(p.amount) || 0;
+    const amount = storedAmount > 0
       ? p.amount
-      : (j?.pricing?.total ?? j?.pricing?.subtotal ?? p.amount ?? 0);
+      : (Number(p.invoice?.total) > 0
+        ? p.invoice.total
+        : (Number(p.gatewayAmount) > 0
+          ? p.gatewayAmount
+          : (j?.pricing?.total ?? j?.pricing?.subtotal ?? 0)));
 
     return {
       ...p,
