@@ -332,7 +332,7 @@ async function hydratePayments(payments) {
       : [],
     jobIds.size
       ? jobsCol().find({ _id: { $in: [...jobIds].map(toOid).filter(Boolean) } })
-          .project({ title: 1, status: 1, services: 1, pricing: 1 })
+          .project({ title: 1, status: 1, services: 1, pricing: 1, country: 1 })
           .toArray()
       : [],
   ]);
@@ -343,6 +343,8 @@ async function hydratePayments(payments) {
     const j = jMap.get(String(p.jobId));
     return {
       ...p,
+      // Inherit country from job when missing on the payment record (old data)
+      country:        p.country || j?.country || '',
       customerName:   u?.name   || '',
       customerMobile: u?.mobile || '',
       customerEmail:  u?.email  || '',

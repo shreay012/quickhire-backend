@@ -164,9 +164,16 @@ r.post('/create-order', rateLimitPayment(), roleGuard(['user', 'guest']), valida
     { upsert: true },
   );
 
-  // Auto-complete mock payments immediately (dev only)
+  // Auto-complete mock payments immediately — mark both job AND payment as paid
+  // so the admin panel shows the correct status without waiting for a webhook.
   if (order.mock) {
-    await jobsCol().updateOne({ _id: job._id }, { $set: { status: 'paid', updatedAt: new Date() } });
+    await Promise.all([
+      jobsCol().updateOne({ _id: job._id }, { $set: { status: 'paid', paidAt: new Date(), updatedAt: new Date() } }),
+      col().updateOne(
+        { orderId: order.orderId },
+        { $set: { status: 'paid', updatedAt: new Date() } },
+      ),
+    ]);
     autoAssignPm(job._id).catch((e) => logger.warn({ err: e }, 'autoAssignPm (mock) failed'));
   }
 
@@ -271,14 +278,16 @@ async function _confirmPaymentRecord(orderId, paymentId) {
     }
   }
 
-  // Mark job as paid + auto-assign PM
+  // Mark job as paid + auto-assign PM.
+  // payment.jobId is stored as a plain string; convert to ObjectId for the query.
   if (payment.jobId) {
     try {
+      const jobOid = new ObjectId(String(payment.jobId));
       await jobsCol().updateOne(
-        { _id: payment.jobId },
+        { _id: jobOid },
         { $set: { status: 'paid', paidAt: new Date(), updatedAt: new Date() } },
       );
-      autoAssignPm(payment.jobId).catch((e) => logger.warn({ err: e }, 'autoAssignPm failed'));
+      autoAssignPm(String(payment.jobId)).catch((e) => logger.warn({ err: e }, 'autoAssignPm failed'));
     } catch (e) {
       logger.warn({ err: e, jobId: payment.jobId }, 'job paid update failed');
     }

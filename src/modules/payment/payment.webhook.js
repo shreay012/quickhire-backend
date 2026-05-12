@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { ObjectId } from 'mongodb';
 import { getDualDb } from '../../config/db.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
@@ -38,7 +39,16 @@ async function handlePaymentSuccess(orderId, paymentId, eventId, eventType) {
   }
 
   if (p.jobId) {
-    autoAssignPm(p.jobId).catch((e) => logger.warn({ err: e }, 'webhook autoAssignPm failed'));
+    try {
+      const jobOid = new ObjectId(String(p.jobId));
+      await getDualDb().collection('jobs').updateOne(
+        { _id: jobOid },
+        { $set: { status: 'paid', paidAt: new Date(), updatedAt: new Date() } },
+      );
+    } catch (e) {
+      logger.warn({ err: e, jobId: p.jobId }, 'webhook job paid update failed');
+    }
+    autoAssignPm(String(p.jobId)).catch((e) => logger.warn({ err: e }, 'webhook autoAssignPm failed'));
   }
 }
 
